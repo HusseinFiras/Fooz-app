@@ -1,7 +1,10 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:intl/intl.dart';
 
 void main() {
   runApp(const MyApp());
@@ -30,14 +33,108 @@ class HomePage extends StatefulWidget {
   _HomePageState createState() => _HomePageState();
 }
 
+class ProductInfo {
+  final bool isProductPage;
+  final String? title;
+  final double? price;
+  final double? originalPrice;
+  final String? currency;
+  final String? imageUrl;
+  final String? description;
+  final String? sku;
+  final String? availability;
+  final String? brand;
+  final String? extractionMethod;
+  final String url;
+  final bool success;
+
+  ProductInfo({
+    required this.isProductPage,
+    this.title,
+    this.price,
+    this.originalPrice,
+    this.currency,
+    this.imageUrl,
+    this.description,
+    this.sku,
+    this.availability,
+    this.brand,
+    this.extractionMethod,
+    required this.url,
+    required this.success,
+  });
+
+  factory ProductInfo.fromJson(Map<String, dynamic> json) {
+    return ProductInfo(
+      isProductPage: json['isProductPage'] ?? false,
+      title: json['title'],
+      price: json['price'] != null ? double.tryParse(json['price'].toString()) : null,
+      originalPrice: json['originalPrice'] != null ? double.tryParse(json['originalPrice'].toString()) : null,
+      currency: json['currency'],
+      imageUrl: json['imageUrl'],
+      description: json['description'],
+      sku: json['sku'],
+      availability: json['availability'],
+      brand: json['brand'],
+      extractionMethod: json['extractionMethod'],
+      url: json['url'] ?? '',
+      success: json['success'] ?? false,
+    );
+  }
+
+  String formatPrice(double? price, String? currency) {
+    if (price == null) return '';
+    
+    final formatter = NumberFormat('#,##0.00', 'tr_TR');
+    String symbol = '₺';
+    
+    switch(currency) {
+      case 'USD':
+        symbol = '\$';
+        break;
+      case 'EUR':
+        symbol = '€';
+        break;
+      case 'GBP':
+        symbol = '£';
+        break;
+      case 'TRY':
+      default:
+        symbol = '₺';
+        break;
+    }
+    
+    return '${formatter.format(price)} $symbol';
+  }
+
+  String get formattedPrice {
+    return formatPrice(price, currency);
+  }
+
+  String get formattedOriginalPrice {
+    return formatPrice(originalPrice, currency);
+  }
+
+  double calculatedFinalPrice(double markupPercentage) {
+    if (price == null) return 0.0;
+    return price! * (1 + markupPercentage / 100);
+  }
+
+  String formattedFinalPrice(double markupPercentage) {
+    return formatPrice(calculatedFinalPrice(markupPercentage), currency);
+  }
+}
+
 class _HomePageState extends State<HomePage> {
   final WebViewController _controller = WebViewController();
   double markupPercentage = 30.0;
   bool isLoading = true;
-  double? currentPrice;
-  String? productTitle;
-  int _currentSiteIndex = 0;
+  
+  // New product info model
+  ProductInfo? productInfo;
+  bool isProductPage = false;
   String _currentUrl = '';
+  int _currentSiteIndex = 0;
 
   // List of all retail websites
   final List<Map<String, String>> _retailSites = [
@@ -95,12 +192,49 @@ class _HomePageState extends State<HomePage> {
       ..addJavaScriptChannel(
         'FlutterChannel',
         onMessageReceived: (JavaScriptMessage message) {
-          final data = message.message.split('|');
-          if (data.length >= 2) {
+          try {
+            final data = jsonDecode(message.message);
+            final newProductInfo = ProductInfo.fromJson(data);
+            
             setState(() {
-              currentPrice = double.tryParse(data[0]);
-              productTitle = data[1];
+              productInfo = newProductInfo;
+              isProductPage = newProductInfo.isProductPage;
+              
+              // Handle navigated event from our script
+              if (data.containsKey('navigated') && data['navigated'] == true) {
+                // Clear product info on navigation
+                _currentUrl = data['url'] ?? _currentUrl;
+              }
             });
+            
+            // Show notification if product detected
+            if (newProductInfo.success && (productInfo == null || productInfo!.success == false)) {
+              _showProductDetectedNotification();
+            }
+          } catch (e) {
+            debugPrint('Error parsing product data: $e');
+            
+            // Fallback to old method for backward compatibility
+            try {
+              final data = message.message.split('|');
+              if (data.length >= 2) {
+                final price = double.tryParse(data[0]);
+                if (price != null) {
+                  setState(() {
+                    productInfo = ProductInfo(
+                      isProductPage: true,
+                      title: data[1],
+                      price: price,
+                      url: _currentUrl,
+                      success: true,
+                    );
+                    isProductPage = true;
+                  });
+                }
+              }
+            } catch (e) {
+              debugPrint('Error with fallback parsing: $e');
+            }
           }
         },
       )
@@ -109,8 +243,8 @@ class _HomePageState extends State<HomePage> {
           onPageStarted: (String url) {
             setState(() {
               isLoading = true;
-              currentPrice = null;
-              productTitle = null;
+              isProductPage = false;
+              productInfo = null;
               _currentUrl = url;
             });
           },
@@ -118,14 +252,25 @@ class _HomePageState extends State<HomePage> {
             setState(() {
               isLoading = false;
             });
-            _injectPriceExtractor();
+            _injectProductDetector();
           },
         ),
       )
       ..loadRequest(Uri.parse(_currentUrl));
   }
 
-  void _injectPriceExtractor() {
+  void _injectProductDetector() async {
+    try {
+      final script = await rootBundle.loadString('assets/product_detector.js');
+      _controller.runJavaScript(script);
+    } catch (e) {
+      debugPrint('Error loading product detector script: $e');
+      // Fallback to the old extraction method
+      _injectLegacyPriceExtractor();
+    }
+  }
+
+  void _injectLegacyPriceExtractor() {
     final js = '''
       function extractProductInfo() {
         // This function will run multiple extraction methods to improve success rate
@@ -366,13 +511,28 @@ class _HomePageState extends State<HomePage> {
     _controller.runJavaScript(js);
   }
 
+  void _showProductDetectedNotification() {
+    if (!mounted || productInfo == null) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Product detected: ${productInfo?.title ?? 'Unknown'}'),
+        duration: const Duration(seconds: 2),
+        action: SnackBarAction(
+          label: 'View',
+          onPressed: _showProductDetails,
+        ),
+      ),
+    );
+  }
+
   void _navigateToSite(int index) {
     if (index >= 0 && index < _retailSites.length) {
       setState(() {
         _currentSiteIndex = index;
         _currentUrl = _retailSites[index]['url']!;
-        currentPrice = null;
-        productTitle = null;
+        productInfo = null;
+        isProductPage = false;
       });
       _controller.loadRequest(Uri.parse(_currentUrl));
       _saveLastSiteIndex(index);
@@ -417,41 +577,168 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _showCalculationDetails() {
-    if (currentPrice == null) return;
+  void _showProductDetails() {
+    if (productInfo == null || !productInfo!.success) return;
     
-    final double finalPrice = currentPrice! * (1 + markupPercentage / 100);
-    final double markup = finalPrice - currentPrice!;
+    final double finalPrice = productInfo!.price! * (1 + markupPercentage / 100);
+    final double markup = finalPrice - productInfo!.price!;
     
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(productTitle ?? 'Product Details'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(16),
+        height: MediaQuery.of(context).size.height * 0.8,
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Original Price: ${currentPrice!.toStringAsFixed(2)} TL'),
-            Text('Markup (${markupPercentage.round()}%): ${markup.toStringAsFixed(2)} TL'),
+            // Header with title and close button
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    productInfo!.title ?? 'Product Details',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
             const Divider(),
-            Text('Final Price: ${finalPrice.toStringAsFixed(2)} TL',
-                style: const TextStyle(fontWeight: FontWeight.bold)),
+            
+            // Product details
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Product image if available
+                    if (productInfo!.imageUrl != null)
+                      Center(
+                        child: Image.network(
+                          productInfo!.imageUrl!,
+                          height: 200,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              height: 200,
+                              color: Colors.grey[200],
+                              child: const Center(
+                                child: Icon(Icons.image_not_supported, size: 50),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    
+                    // Price information
+                    _buildInfoRow('Original Price:', productInfo!.formattedPrice),
+                    if (productInfo!.originalPrice != null)
+                      _buildInfoRow('List Price:', productInfo!.formattedOriginalPrice,
+                          style: const TextStyle(decoration: TextDecoration.lineThrough)),
+                    _buildInfoRow('Markup (${markupPercentage.round()}%):', 
+                                 '${markup.toStringAsFixed(2)} ${productInfo!.currency ?? '₺'}'),
+                    const SizedBox(height: 8),
+                    _buildInfoRow('Final Price:', productInfo!.formattedFinalPrice(markupPercentage),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                    const Divider(),
+                    
+                    // Additional product details
+                    if (productInfo!.brand != null)
+                      _buildInfoRow('Brand:', productInfo!.brand!),
+                    if (productInfo!.sku != null)
+                      _buildInfoRow('SKU:', productInfo!.sku!),
+                    if (productInfo!.availability != null)
+                      _buildInfoRow('Availability:', productInfo!.availability!),
+                    
+                    // Description
+                    if (productInfo!.description != null) ...[
+                      const SizedBox(height: 16),
+                      const Text('Description:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text(productInfo!.description!),
+                    ],
+                    
+                    // Technical info (for debugging)
+                    const SizedBox(height: 16),
+                    ExpansionTile(
+                      title: const Text('Technical Information'),
+                      initiallyExpanded: false,
+                      children: [
+                        _buildInfoRow('Extraction Method:', productInfo!.extractionMethod ?? 'Unknown'),
+                        _buildInfoRow('URL:', productInfo!.url, textOverflow: TextOverflow.ellipsis),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      // Here you could implement adding to cart or other functionality
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Added to cart')),
+                      );
+                      Navigator.pop(context);
+                    },
+                    child: const Text('Add to Cart'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                    ),
+                    onPressed: () {
+                      // Here you would typically integrate with a payment processor
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Proceeding to checkout...')),
+                      );
+                      Navigator.pop(context);
+                    },
+                    child: const Text('Buy Now'),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, {TextStyle? style, TextOverflow textOverflow = TextOverflow.visible}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
           ),
-          ElevatedButton(
-            onPressed: () {
-              // Here you would typically integrate with a payment processor
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Proceeding to checkout...')),
-              );
-              Navigator.pop(context);
-            },
-            child: const Text('Proceed to Checkout'),
+          Expanded(
+            child: Text(
+              value, 
+              style: style,
+              overflow: textOverflow,
+            ),
           ),
         ],
       ),
@@ -483,7 +770,7 @@ class _HomePageState extends State<HomePage> {
             const Center(
               child: CircularProgressIndicator(),
             ),
-          if (currentPrice != null)
+          if (productInfo?.success == true)
             Positioned(
               bottom: 20,
               left: 20,
@@ -493,9 +780,9 @@ class _HomePageState extends State<HomePage> {
                   padding: const EdgeInsets.all(16),
                   backgroundColor: Colors.black,
                 ),
-                onPressed: _showCalculationDetails,
+                onPressed: _showProductDetails,
                 child: Text(
-                  'Calculate Final Price: ${currentPrice!.toStringAsFixed(2)} TL',
+                  'View Product: ${productInfo!.formattedPrice}',
                   style: const TextStyle(fontSize: 16),
                 ),
               ),
