@@ -1,4 +1,6 @@
 // lib/main.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -16,7 +18,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Turkish Retail Price Calculator',
+      title: 'Turkish Retail Price Checker',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
@@ -47,6 +49,7 @@ class ProductInfo {
   final String? extractionMethod;
   final String url;
   final bool success;
+  final Map<String, List<VariantOption>>? variants;
 
   ProductInfo({
     required this.isProductPage,
@@ -62,14 +65,46 @@ class ProductInfo {
     this.extractionMethod,
     required this.url,
     required this.success,
+    this.variants,
   });
 
   factory ProductInfo.fromJson(Map<String, dynamic> json) {
+    // Process variants
+    Map<String, List<VariantOption>>? variantMap;
+    if (json['variants'] != null) {
+      variantMap = {};
+
+      // Process colors
+      if (json['variants']['colors'] != null) {
+        variantMap['colors'] = List<VariantOption>.from(
+            (json['variants']['colors'] as List)
+                .map((variant) => VariantOption.fromJson(variant)));
+      }
+
+      // Process sizes
+      if (json['variants']['sizes'] != null) {
+        variantMap['sizes'] = List<VariantOption>.from(
+            (json['variants']['sizes'] as List)
+                .map((variant) => VariantOption.fromJson(variant)));
+      }
+
+      // Process other options
+      if (json['variants']['otherOptions'] != null) {
+        variantMap['otherOptions'] = List<VariantOption>.from(
+            (json['variants']['otherOptions'] as List)
+                .map((variant) => VariantOption.fromJson(variant)));
+      }
+    }
+
     return ProductInfo(
       isProductPage: json['isProductPage'] ?? false,
       title: json['title'],
-      price: json['price'] != null ? double.tryParse(json['price'].toString()) : null,
-      originalPrice: json['originalPrice'] != null ? double.tryParse(json['originalPrice'].toString()) : null,
+      price: json['price'] != null
+          ? double.tryParse(json['price'].toString())
+          : null,
+      originalPrice: json['originalPrice'] != null
+          ? double.tryParse(json['originalPrice'].toString())
+          : null,
       currency: json['currency'],
       imageUrl: json['imageUrl'],
       description: json['description'],
@@ -79,16 +114,17 @@ class ProductInfo {
       extractionMethod: json['extractionMethod'],
       url: json['url'] ?? '',
       success: json['success'] ?? false,
+      variants: variantMap,
     );
   }
 
   String formatPrice(double? price, String? currency) {
     if (price == null) return '';
-    
+
     final formatter = NumberFormat('#,##0.00', 'tr_TR');
     String symbol = '₺';
-    
-    switch(currency) {
+
+    switch (currency) {
       case 'USD':
         symbol = '\$';
         break;
@@ -103,7 +139,7 @@ class ProductInfo {
         symbol = '₺';
         break;
     }
-    
+
     return '${formatter.format(price)} $symbol';
   }
 
@@ -114,23 +150,36 @@ class ProductInfo {
   String get formattedOriginalPrice {
     return formatPrice(originalPrice, currency);
   }
+}
 
-  double calculatedFinalPrice(double markupPercentage) {
-    if (price == null) return 0.0;
-    return price! * (1 + markupPercentage / 100);
-  }
+class VariantOption {
+  final String text;
+  final bool selected;
+  final String? value;
 
-  String formattedFinalPrice(double markupPercentage) {
-    return formatPrice(calculatedFinalPrice(markupPercentage), currency);
+  VariantOption({
+    required this.text,
+    required this.selected,
+    this.value,
+  });
+
+  factory VariantOption.fromJson(Map<String, dynamic> json) {
+    return VariantOption(
+      text: json['text'] ?? '',
+      selected: json['selected'] ?? false,
+      value: json['value'],
+    );
   }
 }
 
 class _HomePageState extends State<HomePage> {
   final WebViewController _controller = WebViewController();
-  double markupPercentage = 30.0;
   bool isLoading = true;
-  
-  // New product info model
+  DateTime? _lastBackPressTime;
+  Timer? _loadingTimer;
+  bool _manuallyDismissedLoading = false;
+
+  // Product info model
   ProductInfo? productInfo;
   bool isProductPage = false;
   String _currentUrl = '';
@@ -150,7 +199,10 @@ class _HomePageState extends State<HomePage> {
     {'name': 'Deep Atelier', 'url': 'https://www.deepatelier.co/'},
     {'name': 'Pandora', 'url': 'https://tr.pandora.net/'},
     {'name': 'Miu Miu', 'url': 'https://www.miumiu.com/tr/tr.html'},
-    {'name': 'Victoria\'s Secret', 'url': 'https://www.victoriassecret.com.tr/'},
+    {
+      'name': 'Victoria\'s Secret',
+      'url': 'https://www.victoriassecret.com.tr/'
+    },
     {'name': 'Nocturne', 'url': 'https://www.nocturne.com.tr/'},
     {'name': 'Beymen', 'url': 'https://www.beymen.com/tr/kadin-10006'},
     {'name': 'Blue Diamond', 'url': 'https://www.bluediamond.com.tr/'},
@@ -165,20 +217,20 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _currentUrl = _retailSites[_currentSiteIndex]['url']!;
     _initializeWebView();
-    _loadSavedMarkup();
+    _loadLastSiteIndex();
   }
 
-  Future<void> _loadSavedMarkup() async {
+  @override
+  void dispose() {
+    _loadingTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadLastSiteIndex() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      markupPercentage = prefs.getDouble('markup') ?? 30.0;
       _currentSiteIndex = prefs.getInt('lastSiteIndex') ?? 0;
     });
-  }
-
-  Future<void> _saveMarkup(double value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble('markup', value);
   }
 
   Future<void> _saveLastSiteIndex(int index) async {
@@ -195,25 +247,26 @@ class _HomePageState extends State<HomePage> {
           try {
             final data = jsonDecode(message.message);
             final newProductInfo = ProductInfo.fromJson(data);
-            
+
             setState(() {
               productInfo = newProductInfo;
               isProductPage = newProductInfo.isProductPage;
-              
+
               // Handle navigated event from our script
               if (data.containsKey('navigated') && data['navigated'] == true) {
                 // Clear product info on navigation
                 _currentUrl = data['url'] ?? _currentUrl;
               }
             });
-            
+
             // Show notification if product detected
-            if (newProductInfo.success && (productInfo == null || productInfo!.success == false)) {
+            if (newProductInfo.success &&
+                (productInfo == null || productInfo!.success == false)) {
               _showProductDetectedNotification();
             }
           } catch (e) {
             debugPrint('Error parsing product data: $e');
-            
+
             // Fallback to old method for backward compatibility
             try {
               final data = message.message.split('|');
@@ -246,6 +299,17 @@ class _HomePageState extends State<HomePage> {
               isProductPage = false;
               productInfo = null;
               _currentUrl = url;
+              _manuallyDismissedLoading = false;
+            });
+
+            // Set a timer to auto-dismiss the loading indicator after 10 seconds
+            _loadingTimer?.cancel();
+            _loadingTimer = Timer(const Duration(seconds: 10), () {
+              if (mounted && !_manuallyDismissedLoading) {
+                setState(() {
+                  isLoading = false;
+                });
+              }
             });
           },
           onPageFinished: (String url) {
@@ -257,6 +321,27 @@ class _HomePageState extends State<HomePage> {
         ),
       )
       ..loadRequest(Uri.parse(_currentUrl));
+  }
+
+  Future<bool> _onWillPop() async {
+    if (await _controller.canGoBack()) {
+      _controller.goBack();
+      return false;
+    } else {
+      final now = DateTime.now();
+      if (_lastBackPressTime == null ||
+          now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+        _lastBackPressTime = now;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Press back again to exit'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+        return false;
+      }
+      return true;
+    }
   }
 
   void _injectProductDetector() async {
@@ -513,7 +598,7 @@ class _HomePageState extends State<HomePage> {
 
   void _showProductDetectedNotification() {
     if (!mounted || productInfo == null) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Product detected: ${productInfo?.title ?? 'Unknown'}'),
@@ -561,7 +646,8 @@ class _HomePageState extends State<HomePage> {
                   final site = _retailSites[index];
                   return ListTile(
                     title: Text(site['name']!),
-                    subtitle: Text(site['url']!, overflow: TextOverflow.ellipsis),
+                    subtitle:
+                        Text(site['url']!, overflow: TextOverflow.ellipsis),
                     selected: index == _currentSiteIndex,
                     onTap: () {
                       Navigator.pop(context);
@@ -579,10 +665,7 @@ class _HomePageState extends State<HomePage> {
 
   void _showProductDetails() {
     if (productInfo == null || !productInfo!.success) return;
-    
-    final double finalPrice = productInfo!.price! * (1 + markupPercentage / 100);
-    final double markup = finalPrice - productInfo!.price!;
-    
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -592,7 +675,7 @@ class _HomePageState extends State<HomePage> {
       ),
       builder: (context) => Container(
         padding: const EdgeInsets.all(16),
-        height: MediaQuery.of(context).size.height * 0.8,
+        height: MediaQuery.of(context).size.height * 0.85,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -602,7 +685,8 @@ class _HomePageState extends State<HomePage> {
                 Expanded(
                   child: Text(
                     productInfo!.title ?? 'Product Details',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -614,105 +698,185 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
             const Divider(),
-            
+
             // Product details
             Expanded(
               child: SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Product image if available
+                    // Product image with improved handling
                     if (productInfo!.imageUrl != null)
-                      Center(
-                        child: Image.network(
-                          productInfo!.imageUrl!,
-                          height: 200,
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              height: 200,
-                              color: Colors.grey[200],
-                              child: const Center(
-                                child: Icon(Icons.image_not_supported, size: 50),
-                              ),
-                            );
-                          },
+                      Container(
+                        height: 240,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            productInfo!.imageUrl!,
+                            fit: BoxFit.contain,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Center(
+                                child: CircularProgressIndicator(
+                                  value: loadingProgress.expectedTotalBytes !=
+                                          null
+                                      ? loadingProgress.cumulativeBytesLoaded /
+                                          loadingProgress.expectedTotalBytes!
+                                      : null,
+                                ),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              debugPrint('Image error: $error');
+                              return Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.broken_image, size: 50),
+                                    const SizedBox(height: 8),
+                                    Text('Image could not be loaded',
+                                        style:
+                                            TextStyle(color: Colors.grey[600])),
+                                    Text(productInfo!.imageUrl ?? '',
+                                        style: TextStyle(
+                                            color: Colors.grey[500],
+                                            fontSize: 10),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                     const SizedBox(height: 16),
-                    
+
                     // Price information
-                    _buildInfoRow('Original Price:', productInfo!.formattedPrice),
+                    _buildInfoRow('Price:', productInfo!.formattedPrice,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 18)),
                     if (productInfo!.originalPrice != null)
-                      _buildInfoRow('List Price:', productInfo!.formattedOriginalPrice,
-                          style: const TextStyle(decoration: TextDecoration.lineThrough)),
-                    _buildInfoRow('Markup (${markupPercentage.round()}%):', 
-                                 '${markup.toStringAsFixed(2)} ${productInfo!.currency ?? '₺'}'),
-                    const SizedBox(height: 8),
-                    _buildInfoRow('Final Price:', productInfo!.formattedFinalPrice(markupPercentage),
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                    const Divider(),
-                    
+                      _buildInfoRow('Original Price:',
+                          productInfo!.formattedOriginalPrice,
+                          style: const TextStyle(
+                              decoration: TextDecoration.lineThrough)),
+                    const SizedBox(height: 16),
+
+                    // Color variants
+                    if (productInfo!.variants != null &&
+                        productInfo!.variants!.containsKey('colors') &&
+                        productInfo!.variants!['colors']!.isNotEmpty)
+                      _buildVariantSection(
+                          'Colors', productInfo!.variants!['colors']!),
+
+                    // Size variants
+                    if (productInfo!.variants != null &&
+                        productInfo!.variants!.containsKey('sizes') &&
+                        productInfo!.variants!['sizes']!.isNotEmpty)
+                      _buildVariantSection(
+                          'Sizes', productInfo!.variants!['sizes']!),
+
+                    // Other option variants
+                    if (productInfo!.variants != null &&
+                        productInfo!.variants!.containsKey('otherOptions') &&
+                        productInfo!.variants!['otherOptions']!.isNotEmpty)
+                      _buildVariantSection(
+                          'Options', productInfo!.variants!['otherOptions']!),
+
+                    if (productInfo!.variants == null ||
+                        (productInfo!.variants!['colors']?.isEmpty ?? true) &&
+                            (productInfo!.variants!['sizes']?.isEmpty ??
+                                true) &&
+                            (productInfo!.variants!['otherOptions']?.isEmpty ??
+                                true))
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: Text(
+                          'No variants available for this product',
+                          style: TextStyle(
+                              color: Colors.grey[600],
+                              fontStyle: FontStyle.italic),
+                        ),
+                      ),
+
+                    const Divider(height: 24),
+
                     // Additional product details
                     if (productInfo!.brand != null)
                       _buildInfoRow('Brand:', productInfo!.brand!),
                     if (productInfo!.sku != null)
                       _buildInfoRow('SKU:', productInfo!.sku!),
                     if (productInfo!.availability != null)
-                      _buildInfoRow('Availability:', productInfo!.availability!),
-                    
+                      _buildInfoRow(
+                          'Availability:', productInfo!.availability!),
+
                     // Description
                     if (productInfo!.description != null) ...[
                       const SizedBox(height: 16),
-                      const Text('Description:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const Text('Description:',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
                       Text(productInfo!.description!),
                     ],
-                    
+
                     // Technical info (for debugging)
                     const SizedBox(height: 16),
                     ExpansionTile(
                       title: const Text('Technical Information'),
                       initiallyExpanded: false,
                       children: [
-                        _buildInfoRow('Extraction Method:', productInfo!.extractionMethod ?? 'Unknown'),
-                        _buildInfoRow('URL:', productInfo!.url, textOverflow: TextOverflow.ellipsis),
+                        _buildInfoRow('Extraction Method:',
+                            productInfo!.extractionMethod ?? 'Unknown'),
+                        _buildInfoRow('URL:', productInfo!.url,
+                            textOverflow: TextOverflow.ellipsis),
+                        // Add debugging info for image URL
+                        _buildInfoRow(
+                            'Image URL:', productInfo!.imageUrl ?? 'None',
+                            textOverflow: TextOverflow.ellipsis),
                       ],
                     ),
                   ],
                 ),
               ),
             ),
-            
+
             // Action buttons
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.favorite_border),
+                    label: const Text('Save'),
                     onPressed: () {
-                      // Here you could implement adding to cart or other functionality
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Product saved to favorites')),
+                      );
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.shopping_cart),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                    ),
+                    label: const Text('Add to Cart'),
+                    onPressed: () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Added to cart')),
                       );
                       Navigator.pop(context);
                     },
-                    child: const Text('Add to Cart'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black,
-                    ),
-                    onPressed: () {
-                      // Here you would typically integrate with a payment processor
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Proceeding to checkout...')),
-                      );
-                      Navigator.pop(context);
-                    },
-                    child: const Text('Buy Now'),
                   ),
                 ),
               ],
@@ -723,7 +887,140 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildInfoRow(String label, String value, {TextStyle? style, TextOverflow textOverflow = TextOverflow.visible}) {
+  Widget _buildVariantSection(String title, List<VariantOption> options) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: options.map((option) {
+            // For colors, try to use the color value if it exists
+            if (title == 'Colors' &&
+                option.value != null &&
+                option.value!.startsWith('rgb')) {
+              // Try to parse the color
+              Color? color;
+              try {
+                final rgbValues =
+                    RegExp(r'rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)')
+                        .firstMatch(option.value!);
+                if (rgbValues != null) {
+                  color = Color.fromRGBO(
+                    int.parse(rgbValues.group(1)!),
+                    int.parse(rgbValues.group(2)!),
+                    int.parse(rgbValues.group(3)!),
+                    1.0,
+                  );
+                }
+              } catch (e) {
+                debugPrint('Error parsing color: $e');
+              }
+
+              return InkWell(
+                onTap: () {
+                  // Handle color selection
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Selected color: ${option.text}')),
+                  );
+                },
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: color ?? Colors.grey,
+                    border: Border.all(
+                      color: option.selected ? Colors.black : Colors.grey,
+                      width: option.selected ? 2 : 1,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: option.selected
+                      ? const Icon(Icons.check, color: Colors.white, size: 20)
+                      : null,
+                ),
+              );
+            } else if (title == 'Colors' &&
+                option.value != null &&
+                option.value!.startsWith('http')) {
+              // If the color value is an image URL
+              return InkWell(
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Selected color: ${option.text}')),
+                  );
+                },
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: option.selected ? Colors.black : Colors.grey,
+                      width: option.selected ? 2 : 1,
+                    ),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(5),
+                    child: Image.network(
+                      option.value!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          Container(color: Colors.grey[300]),
+                    ),
+                  ),
+                ),
+              );
+            } else {
+              // For other variants or when no color value exists
+              return InkWell(
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(
+                            'Selected ${title.toLowerCase().substring(0, title.length - 1)}: ${option.text}')),
+                  );
+                },
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: option.selected ? Colors.black : Colors.grey[300]!,
+                      width: option.selected ? 2 : 1,
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                    color: option.selected
+                        ? Colors.black.withOpacity(0.05)
+                        : Colors.white,
+                  ),
+                  child: Text(
+                    option.text,
+                    style: TextStyle(
+                      fontWeight:
+                          option.selected ? FontWeight.bold : FontWeight.normal,
+                      color: option.selected ? Colors.black : Colors.black87,
+                    ),
+                  ),
+                ),
+              );
+            }
+          }).toList(),
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value,
+      {TextStyle? style, TextOverflow textOverflow = TextOverflow.visible}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -731,11 +1028,12 @@ class _HomePageState extends State<HomePage> {
         children: [
           SizedBox(
             width: 100,
-            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+            child: Text(label,
+                style: const TextStyle(fontWeight: FontWeight.w500)),
           ),
           Expanded(
             child: Text(
-              value, 
+              value,
               style: style,
               overflow: textOverflow,
             ),
@@ -747,93 +1045,272 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_retailSites[_currentSiteIndex]['name'] ?? 'Price Calculator'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.swap_horiz),
-            onPressed: _showSiteSelector,
-            tooltip: 'Change website',
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () => _showMarkupSettings(),
-            tooltip: 'Set markup',
-          ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          WebViewWidget(controller: _controller),
-          if (isLoading)
-            const Center(
-              child: CircularProgressIndicator(),
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: AppBar(
+          title:
+              Text(_retailSites[_currentSiteIndex]['name'] ?? 'Price Checker'),
+          actions: [
+            // Navigation buttons
+            IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () async {
+                if (await _controller.canGoBack()) {
+                  _controller.goBack();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('No previous page')),
+                  );
+                }
+              },
+              tooltip: 'Go back',
             ),
-          if (productInfo?.success == true)
-            Positioned(
-              bottom: 20,
-              left: 20,
-              right: 20,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.all(16),
-                  backgroundColor: Colors.black,
-                ),
-                onPressed: _showProductDetails,
-                child: Text(
-                  'View Product: ${productInfo!.formattedPrice}',
-                  style: const TextStyle(fontSize: 16),
+            IconButton(
+              icon: const Icon(Icons.arrow_forward),
+              onPressed: () async {
+                if (await _controller.canGoForward()) {
+                  _controller.goForward();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('No next page')),
+                  );
+                }
+              },
+              tooltip: 'Go forward',
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () {
+                _controller.reload();
+              },
+              tooltip: 'Reload',
+            ),
+            IconButton(
+              icon: const Icon(Icons.swap_horiz),
+              onPressed: _showSiteSelector,
+              tooltip: 'Change website',
+            ),
+          ],
+        ),
+        body: Stack(
+          children: [
+            WebViewWidget(controller: _controller),
+            if (isLoading)
+              Stack(
+                children: [
+                  // Semi-transparent overlay
+                  Container(
+                    color: Colors.white.withOpacity(0.7),
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                  // Dismiss button
+                  Positioned(
+                    top: 16,
+                    right: 16,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          setState(() {
+                            isLoading = false;
+                            _manuallyDismissedLoading = true;
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            if (productInfo?.success == true)
+              Positioned(
+                bottom: 20,
+                left: 20,
+                right: 20,
+                child: Card(
+                  elevation: 8,
+                  shadowColor: Colors.black26,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: InkWell(
+                    onTap: _showProductDetails,
+                    borderRadius: BorderRadius.circular(16),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Row(
+                        children: [
+                          // Product thumbnail
+                          if (productInfo!.imageUrl != null)
+                            Container(
+                              width: 60,
+                              height: 60,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[200],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.network(
+                                  productInfo!.imageUrl!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return const Icon(
+                                        Icons.image_not_supported);
+                                  },
+                                ),
+                              ),
+                            )
+                          else
+                            Container(
+                              width: 60,
+                              height: 60,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[200],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.shopping_bag, size: 30),
+                            ),
+                          const SizedBox(width: 12),
+
+                          // Product info
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  productInfo!.title ?? 'Product Detected',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Text(
+                                      productInfo!.formattedPrice,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    if (productInfo!.originalPrice != null) ...[
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        productInfo!.formattedOriginalPrice,
+                                        style: const TextStyle(
+                                          decoration:
+                                              TextDecoration.lineThrough,
+                                          color: Colors.grey,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                if (productInfo!.variants != null) ...[
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      if (productInfo!.variants!['colors']
+                                              ?.isNotEmpty ??
+                                          false)
+                                        _buildVariantIndicator(
+                                          'Colors',
+                                          productInfo!
+                                              .variants!['colors']!.length,
+                                          Colors.red[400]!,
+                                        ),
+                                      if (productInfo!
+                                              .variants!['sizes']?.isNotEmpty ??
+                                          false)
+                                        _buildVariantIndicator(
+                                          'Sizes',
+                                          productInfo!
+                                              .variants!['sizes']!.length,
+                                          Colors.blue[400]!,
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+
+                          // View details button
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.black87,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 12,
+                            ),
+                            child: const Text(
+                              'View',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // Use this to go back in WebView navigation
-          _controller.goBack();
-        },
-        child: const Icon(Icons.arrow_back),
-        tooltip: 'Go back',
+          ],
+        ),
+        // Removed the floating action button as navigation is now in the app bar
       ),
     );
   }
 
-  void _showMarkupSettings() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Set Markup Percentage'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Slider(
-              value: markupPercentage,
-              min: 0,
-              max: 100,
-              divisions: 100,
-              label: '${markupPercentage.round()}%',
-              onChanged: (value) {
-                setState(() {
-                  markupPercentage = value;
-                });
-              },
-            ),
-            Text('Current Markup: ${markupPercentage.round()}%'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+  Widget _buildVariantIndicator(String type, int count, Color color) {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            type == 'Colors' ? Icons.palette : Icons.straighten,
+            size: 12,
+            color: color,
           ),
-          TextButton(
-            onPressed: () {
-              _saveMarkup(markupPercentage);
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
+          const SizedBox(width: 4),
+          Text(
+            count.toString(),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
           ),
         ],
       ),
