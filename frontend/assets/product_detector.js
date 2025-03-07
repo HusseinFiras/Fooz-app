@@ -10,23 +10,25 @@
 
 // Initialize the product detector when the script is loaded
 (function () {
-  // Start script with delay to ensure page is fully loaded
-  setTimeout(initProductDetector, 1000);
+  // Start script with shorter delay to be more responsive
+  setTimeout(initProductDetector, 500); // Reduced from 1000ms
 })();
 
 /**
  * Main function to initialize product detection
  */
 function initProductDetector() {
-  // Configuration
-  const CHECK_INTERVAL = 1000; // How often to check for updates (1 second)
-  const MAX_RETRIES = 8; // Maximum number of times to retry extracting product info
-  const RETRY_DELAY = 800; // Delay between retries (0.8 second)
+  // Configuration - optimized timing values
+  const CHECK_INTERVAL = 800; // Reduced from 1000ms
+  const MAX_RETRIES = 5; // Reduced from 8
+  const RETRY_DELAY = 600; // Reduced from 800ms
+  const NAVIGATION_CHECK_INTERVAL = 300; // Reduced from 500ms
 
   let retryCount = 0;
   let lastProductData = null;
   let productDetected = false;
   let observer = null;
+  let initialAttemptComplete = false;
 
   // Function to report data back to Flutter
   function reportToFlutter(data) {
@@ -59,7 +61,26 @@ function initProductDetector() {
     // If we found a product, set the flag
     if (productData.success) {
       productDetected = true;
+      initialAttemptComplete = true;
       return true;
+    }
+
+    // If this is our first complete attempt with no success
+    if (!initialAttemptComplete) {
+      initialAttemptComplete = true;
+
+      // If it's clearly not a product page, stop trying aggressively
+      if (!productData.isProductPage) {
+        reportToFlutter({
+          isProductPage: false,
+          success: false,
+          navigated: false,
+          url: window.location.href,
+        });
+
+        // Reduce the retry count to minimize background processing
+        retryCount = MAX_RETRIES - 2;
+      }
     }
 
     return false;
@@ -79,68 +100,15 @@ function initProductDetector() {
     }, RETRY_DELAY * retryCount);
   }
 
-  // Initial detection
-  detectAndReportProduct();
-  retryDetection();
+  // Initial detection - use a more immediate first check
+  setTimeout(detectAndReportProduct, 100);
 
-  // Setup mutation observer to detect DOM changes (dynamic content loading)
-  observer = new MutationObserver((mutations) => {
-    // Only check if we don't have a product yet or if significant mutations occurred
-    if (!productDetected || mutations.length > 5) {
-      detectAndReportProduct();
+  // Then follow with normal retry pattern
+  setTimeout(() => {
+    if (!productDetected) {
+      retryDetection();
     }
-  });
-
-  observer.observe(document.body, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    attributeFilter: ["style", "class", "src", "content"], // Watch attributes that might affect product data
-  });
-
-  // Also check periodically
-  const intervalId = setInterval(() => {
-    detectAndReportProduct();
-
-    // If we've already detected a product and reported it,
-    // we can reduce check frequency to save resources
-    if (productDetected) {
-      clearInterval(intervalId);
-
-      // Continue checking but less frequently
-      setInterval(detectAndReportProduct, CHECK_INTERVAL * 5);
-
-      // And stop the aggressive retries
-      retryCount = MAX_RETRIES;
-    }
-  }, CHECK_INTERVAL);
-
-  // Setup page navigation monitoring
-  let lastUrl = window.location.href;
-  setInterval(() => {
-    const currentUrl = window.location.href;
-    if (currentUrl !== lastUrl) {
-      // URL changed, reset detection
-      lastUrl = currentUrl;
-      lastProductData = null;
-      productDetected = false;
-      retryCount = 0;
-
-      // Reset page state in Flutter
-      reportToFlutter({
-        isProductPage: false,
-        success: false,
-        navigated: true,
-        url: currentUrl,
-      });
-
-      // Try to detect on the new page
-      setTimeout(() => {
-        detectAndReportProduct();
-        retryDetection();
-      }, 1000);
-    }
-  }, 500);
+  }, 700);
 }
 
 /**

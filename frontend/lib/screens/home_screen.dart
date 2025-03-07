@@ -17,7 +17,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _fadeController;
   late AnimationController _scaleController;
   late Animation<double> _fadeAnimation;
-  
+
   // Colors for the gradient backgrounds
   final List<List<Color>> _gradients = [
     [const Color(0xFFF8F9FA), const Color(0xFFE9ECEF)],
@@ -31,24 +31,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    
+
     // Setup fade-in animation
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
     );
-    
+
     _fadeAnimation = CurvedAnimation(
       parent: _fadeController,
       curve: Curves.easeInOut,
     );
-    
+
     // Setup scale animation for card press
     _scaleController = AnimationController(
       duration: const Duration(milliseconds: 150),
       vsync: this,
     );
-    
+
     // Start the animations
     _fadeController.forward();
   }
@@ -63,7 +63,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Luxury Retailers'),
@@ -125,7 +125,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ],
             ),
           ),
-          
+
           // Grid of site cards with animation
           Expanded(
             child: FadeTransition(
@@ -136,7 +136,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   crossAxisCount: 3,
                   crossAxisSpacing: 16,
                   mainAxisSpacing: 16,
-                  childAspectRatio: 0.85, // Slightly taller cards
+                  childAspectRatio:
+                      0.80, // Reduced from 0.85 to give more vertical space
                 ),
                 itemCount: _dataService.retailSites.length,
                 itemBuilder: (context, index) {
@@ -148,7 +149,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       // This avoids animation conflicts
                     }
                   });
-                  
+
                   final site = _dataService.retailSites[index];
                   return _buildSiteCard(site, index);
                 },
@@ -163,7 +164,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildSiteCard(Map<String, String> site, int index) {
     // Use a stable but random-looking gradient for each card
     final gradientIndex = index % _gradients.length;
-    
+
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0.8, end: 1.0),
       duration: Duration(milliseconds: 400 + (index * 50)),
@@ -190,8 +191,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               }
             },
             borderRadius: BorderRadius.circular(16),
-            splashColor: Theme.of(context).colorScheme.secondary.withOpacity(0.1),
-            highlightColor: Theme.of(context).colorScheme.secondary.withOpacity(0.05),
+            splashColor:
+                Theme.of(context).colorScheme.secondary.withOpacity(0.1),
+            highlightColor:
+                Theme.of(context).colorScheme.secondary.withOpacity(0.05),
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
@@ -201,60 +204,81 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   colors: _gradients[gradientIndex],
                 ),
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Logo container with subtle shadow
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 10,
-                            spreadRadius: 0,
-                            offset: const Offset(0, 4),
+              child: ClipRect(
+                // Add ClipRect to prevent overflow painting
+                child: LayoutBuilder(builder: (context, constraints) {
+                  // Calculate appropriate sizes based on available space
+                  final availableHeight = constraints.maxHeight;
+                  final logoSize =
+                      availableHeight * 0.5; // 50% of height for logo
+
+                  return Padding(
+                    padding: const EdgeInsets.all(10.0), // Reduced padding
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Logo container with subtle shadow
+                        Container(
+                          width: logoSize,
+                          height: logoSize,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                spreadRadius: 0,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      child: Center(
-                        child: Text(
-                          site['name']![0],
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.primary,
+                          child: Center(
+                            child: Text(
+                              site['name']![0],
+                              style: TextStyle(
+                                fontSize:
+                                    logoSize * 0.45, // Proportional font size
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                        SizedBox(
+                            height: availableHeight *
+                                0.05), // 5% of height for spacing
+                        Flexible(
+                          child: Text(
+                            site['name']!,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              'Shop Now',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Theme.of(context).colorScheme.secondary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      site['name']!,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Shop Now',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Theme.of(context).colorScheme.secondary,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+                  );
+                }),
               ),
             ),
           ),
@@ -270,18 +294,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     } catch (e) {
       // Silently handle any haptic feedback errors
     }
-    
+
     Navigator.push(
       context,
       PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => 
-          WebViewScreen(initialSiteIndex: index),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            WebViewScreen(initialSiteIndex: index),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(1.0, 0.0);
           const end = Offset.zero;
           const curve = Curves.easeInOutCubic;
 
-          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          var tween =
+              Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
           var offsetAnimation = animation.drive(tween);
 
           return SlideTransition(

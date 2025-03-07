@@ -15,7 +15,7 @@ class WebViewScreen extends StatefulWidget {
   final int initialSiteIndex;
 
   const WebViewScreen({
-    Key? key, 
+    Key? key,
     required this.initialSiteIndex,
   }) : super(key: key);
 
@@ -60,7 +60,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
     // Initialize webview with current URL
     _webViewService.initializeWebView(_currentUrl);
-    
+
     // Save last site index for next time
     _dataService.saveLastSiteIndex(_currentSiteIndex);
   }
@@ -73,7 +73,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   void _handleLoadingStateChanged(bool isLoading) {
     if (!mounted) return;
-    
+
     setState(() {
       this.isLoading = isLoading;
       if (isLoading) {
@@ -81,9 +81,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
         productInfo = null;
         _manuallyDismissedLoading = false;
 
-        // Set a timer to auto-dismiss the loading indicator after 10 seconds
+        // Set a timer to auto-dismiss the loading indicator after 5 seconds instead of 10
         _loadingTimer?.cancel();
-        _loadingTimer = Timer(const Duration(seconds: 10), () {
+        _loadingTimer = Timer(const Duration(seconds: 5), () {
           if (mounted && !_manuallyDismissedLoading) {
             setState(() {
               this.isLoading = false;
@@ -96,16 +96,21 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   void _handleProductInfoChanged(ProductInfo newProductInfo) {
     if (!mounted) return;
-    
+
     setState(() {
       productInfo = newProductInfo;
       isProductPage = newProductInfo.isProductPage;
+
+      // Automatically hide loading indicator when product info is detected
+      if (newProductInfo.success) {
+        isLoading = false;
+      }
     });
   }
 
   void _handleUrlChanged(String url) {
     if (!mounted) return;
-    
+
     setState(() {
       _currentUrl = url;
     });
@@ -164,7 +169,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
@@ -240,7 +245,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
                     tooltip: 'Go back',
                   ),
                 ),
-                
+
                 // Forward button
                 Material(
                   color: Colors.transparent,
@@ -268,7 +273,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
                     tooltip: 'Go forward',
                   ),
                 ),
-                
+
                 // Refresh button
                 Material(
                   color: Colors.transparent,
@@ -283,7 +288,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
                     tooltip: 'Reload',
                   ),
                 ),
-                
+
                 // Change website button
                 Material(
                   color: Colors.transparent,
@@ -308,7 +313,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
               duration: const Duration(milliseconds: 300),
               child: WebViewWidget(controller: _webViewService.controller),
             ),
-            
+
             // Loading indicator with elegant styling
             if (isLoading)
               TweenAnimationBuilder<double>(
@@ -346,47 +351,70 @@ class _WebViewScreenState extends State<WebViewScreen> {
                   );
                 },
               ),
-            
+
             // Dismiss loading button
             if (isLoading)
               Positioned(
-                top: 16,
-                right: 16,
+                bottom: 20,
+                right: 20,
                 child: TweenAnimationBuilder<double>(
                   tween: Tween<double>(begin: 0.0, end: 1.0),
-                  duration: const Duration(milliseconds: 400),
+                  duration: const Duration(milliseconds: 300),
                   curve: Curves.easeOutCubic,
                   builder: (context, value, child) {
-                    return Transform.scale(
-                      scale: value,
-                      child: child,
-                    );
-                  },
-                  child: Material(
-                    elevation: 2,
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    child: InkWell(
-                      onTap: () {
-                        setState(() {
-                          isLoading = false;
-                          _manuallyDismissedLoading = true;
-                        });
-                      },
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        child: Icon(
-                          Icons.close,
-                          color: theme.colorScheme.primary,
-                          size: 16,
+                    return Opacity(
+                      opacity: value,
+                      child: Card(
+                        elevation: 4,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    theme.colorScheme.secondary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              const Text(
+                                'Analyzing page...',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    isLoading = false;
+                                    _manuallyDismissedLoading = true;
+                                  });
+                                },
+                                child: Icon(
+                                  Icons.close,
+                                  size: 16,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                 ),
               ),
-            
             // Product info card with animation
             if (productInfo?.success == true)
               Positioned(
