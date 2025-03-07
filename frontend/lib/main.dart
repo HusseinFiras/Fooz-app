@@ -92,7 +92,7 @@ class MyApp extends StatelessWidget {
           indicatorColor: const Color(0xFFE0B872).withOpacity(0.2),
         ),
       ),
-      home: const HomePage(),
+      home: const HomePage(), // Changed from HomeScreen to HomePage
     );
   }
 }

@@ -1,6 +1,5 @@
 // lib/screens/webview_screen.dart
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -81,7 +80,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
         productInfo = null;
         _manuallyDismissedLoading = false;
 
-        // Set a timer to auto-dismiss the loading indicator after 5 seconds instead of 10
+        // Set a timer to auto-dismiss the loading indicator
         _loadingTimer?.cancel();
         _loadingTimer = Timer(const Duration(seconds: 5), () {
           if (mounted && !_manuallyDismissedLoading) {
@@ -215,10 +214,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
             },
           ),
           actions: [
-            // Web navigation controls in a more elegant layout
+            // Web navigation controls
             Row(
               children: [
-                // Back button
                 Material(
                   color: Colors.transparent,
                   shape: const CircleBorder(),
@@ -245,8 +243,6 @@ class _WebViewScreenState extends State<WebViewScreen> {
                     tooltip: 'Go back',
                   ),
                 ),
-
-                // Forward button
                 Material(
                   color: Colors.transparent,
                   shape: const CircleBorder(),
@@ -273,8 +269,6 @@ class _WebViewScreenState extends State<WebViewScreen> {
                     tooltip: 'Go forward',
                   ),
                 ),
-
-                // Refresh button
                 Material(
                   color: Colors.transparent,
                   shape: const CircleBorder(),
@@ -288,8 +282,6 @@ class _WebViewScreenState extends State<WebViewScreen> {
                     tooltip: 'Reload',
                   ),
                 ),
-
-                // Change website button
                 Material(
                   color: Colors.transparent,
                   shape: const CircleBorder(),
@@ -314,7 +306,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
               child: WebViewWidget(controller: _webViewService.controller),
             ),
 
-            // Loading indicator with elegant styling
+            // Loading indicator
             if (isLoading)
               TweenAnimationBuilder<double>(
                 tween: Tween<double>(begin: 0.0, end: 1.0),
@@ -415,6 +407,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
                   },
                 ),
               ),
+            
             // Product info card with animation
             if (productInfo?.success == true)
               Positioned(

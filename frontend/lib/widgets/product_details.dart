@@ -35,7 +35,43 @@ class ProductDetailsBottomSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildVariantSection(BuildContext context, String title, List<VariantOption> options) {
+  Widget _buildVariantSection(
+      BuildContext context, String title, List<VariantOption> options) {
+    // Filter out nonsensical options (like country codes, honorifics, etc.)
+    final filteredOptions = options.where((option) {
+      // Skip options that look like country codes
+      if (option.text.startsWith('+') &&
+          RegExp(r'^\+\d+ ').hasMatch(option.text)) {
+        return false;
+      }
+
+      // Skip honorifics and placeholder options
+      final String lowerText = option.text.toLowerCase();
+      if ([
+            'mr.',
+            'mrs.',
+            'ms.',
+            'miss',
+            'dr.',
+            'prof.',
+            'select',
+            'i\'d rather not say'
+          ].contains(lowerText) ||
+          lowerText.contains('select size') ||
+          lowerText.contains('availability') ||
+          lowerText.contains('quality') ||
+          lowerText.contains('characteristics')) {
+        return false;
+      }
+
+      return true;
+    }).toList();
+
+    // If no valid options after filtering, don't show the section
+    if (filteredOptions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -49,7 +85,7 @@ class ProductDetailsBottomSheet extends StatelessWidget {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: options.map((option) {
+          children: filteredOptions.map((option) {
             // For colors, try to use the color value if it exists
             if (title == 'Colors' &&
                 option.value != null &&
@@ -74,7 +110,6 @@ class ProductDetailsBottomSheet extends StatelessWidget {
 
               return InkWell(
                 onTap: () {
-                  // Handle color selection
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Selected color: ${option.text}')),
                   );
@@ -167,6 +202,34 @@ class ProductDetailsBottomSheet extends StatelessWidget {
     );
   }
 
+  // Format availability string for better display
+  String _formatAvailability(String? availability) {
+    if (availability == null) return 'Unknown';
+
+    // Convert schema.org format to user-friendly text
+    if (availability == 'http://schema.org/InStock' ||
+        availability == 'https://schema.org/InStock') {
+      return 'In Stock';
+    } else if (availability == 'http://schema.org/OutOfStock' ||
+        availability == 'https://schema.org/OutOfStock') {
+      return 'Out of Stock';
+    } else if (availability == 'http://schema.org/LimitedAvailability' ||
+        availability == 'https://schema.org/LimitedAvailability') {
+      return 'Limited Availability';
+    } else if (availability == 'http://schema.org/PreOrder' ||
+        availability == 'https://schema.org/PreOrder') {
+      return 'Pre-Order';
+    } else if (availability.toLowerCase().contains('in stock')) {
+      return 'In Stock';
+    } else if (availability.toLowerCase().contains('out of stock')) {
+      return 'Out of Stock';
+    } else if (availability == 'Select' || availability.contains('select')) {
+      return 'Check Store Availability';
+    }
+
+    return availability;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -219,7 +282,8 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                             if (loadingProgress == null) return child;
                             return Center(
                               child: CircularProgressIndicator(
-                                value: loadingProgress.expectedTotalBytes != null
+                                value: loadingProgress.expectedTotalBytes !=
+                                        null
                                     ? loadingProgress.cumulativeBytesLoaded /
                                         loadingProgress.expectedTotalBytes!
                                     : null,
@@ -227,7 +291,6 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                             );
                           },
                           errorBuilder: (context, error, stackTrace) {
-                            debugPrint('Image error: $error');
                             return Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -235,13 +298,8 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                                   const Icon(Icons.broken_image, size: 50),
                                   const SizedBox(height: 8),
                                   Text('Image could not be loaded',
-                                      style: TextStyle(color: Colors.grey[600])),
-                                  Text(productInfo.imageUrl ?? '',
-                                      style: TextStyle(
-                                          color: Colors.grey[500],
-                                          fontSize: 10),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis),
+                                      style:
+                                          TextStyle(color: Colors.grey[600])),
                                 ],
                               ),
                             );
@@ -256,8 +314,8 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                       style: const TextStyle(
                           fontWeight: FontWeight.bold, fontSize: 18)),
                   if (productInfo.originalPrice != null)
-                    _buildInfoRow('Original Price:',
-                        productInfo.formattedOriginalPrice,
+                    _buildInfoRow(
+                        'Original Price:', productInfo.formattedOriginalPrice,
                         style: const TextStyle(
                             decoration: TextDecoration.lineThrough)),
                   const SizedBox(height: 16),
@@ -280,8 +338,8 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                   if (productInfo.variants != null &&
                       productInfo.variants!.containsKey('otherOptions') &&
                       productInfo.variants!['otherOptions']!.isNotEmpty)
-                    _buildVariantSection(
-                        context, 'Options', productInfo.variants!['otherOptions']!),
+                    _buildVariantSection(context, 'Options',
+                        productInfo.variants!['otherOptions']!),
 
                   if (productInfo.variants == null ||
                       (productInfo.variants!['colors']?.isEmpty ?? true) &&
@@ -303,13 +361,14 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                   // Additional product details
                   if (productInfo.brand != null)
                     _buildInfoRow('Brand:', productInfo.brand!),
-                  if (productInfo.sku != null)
-                    _buildInfoRow('SKU:', productInfo.sku!),
                   if (productInfo.availability != null)
-                    _buildInfoRow('Availability:', productInfo.availability!),
+                    _buildInfoRow('Availability:',
+                        _formatAvailability(productInfo.availability)),
 
-                  // Description
-                  if (productInfo.description != null) ...[
+                  // Description - only show if not empty and not null
+                  if (productInfo.description != null &&
+                      productInfo.description!.trim().isNotEmpty &&
+                      !productInfo.description!.contains('schema.org')) ...[
                     const SizedBox(height: 16),
                     const Text('Description:',
                         style: TextStyle(fontWeight: FontWeight.bold)),
@@ -317,12 +376,13 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                     Text(productInfo.description!),
                   ],
 
-                  // Technical info (for debugging)
+                  // Technical info (hidden by default)
                   const SizedBox(height: 16),
                   ExpansionTile(
                     title: const Text('Technical Information'),
                     initiallyExpanded: false,
                     children: [
+                      _buildInfoRow('SKU:', productInfo.sku ?? 'Not available'),
                       _buildInfoRow('Extraction Method:',
                           productInfo.extractionMethod ?? 'Unknown'),
                       _buildInfoRow('URL:', productInfo.url,

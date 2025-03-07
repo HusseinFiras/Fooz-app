@@ -1,5 +1,5 @@
 /**
- * Advanced Product Detection Script for E-commerce WebViews
+ * Improved Product Detection Script for E-commerce WebViews
  *
  * This script uses multiple detection methods to:
  * 1. Identify if the current page is a product page
@@ -11,7 +11,7 @@
 // Initialize the product detector when the script is loaded
 (function () {
   // Start script with shorter delay to be more responsive
-  setTimeout(initProductDetector, 500); // Reduced from 1000ms
+  setTimeout(initProductDetector, 500);
 })();
 
 /**
@@ -19,10 +19,10 @@
  */
 function initProductDetector() {
   // Configuration - optimized timing values
-  const CHECK_INTERVAL = 800; // Reduced from 1000ms
-  const MAX_RETRIES = 5; // Reduced from 8
-  const RETRY_DELAY = 600; // Reduced from 800ms
-  const NAVIGATION_CHECK_INTERVAL = 300; // Reduced from 500ms
+  const CHECK_INTERVAL = 800;
+  const MAX_RETRIES = 5;
+  const RETRY_DELAY = 600;
+  const NAVIGATION_CHECK_INTERVAL = 300;
 
   let retryCount = 0;
   let lastProductData = null;
@@ -205,7 +205,7 @@ function isProductPage() {
 }
 
 /**
- * Extracts variant information (colors, sizes, etc.) from the product page
+ * Improved variant extraction to avoid extracting country codes
  */
 function extractVariantInfo() {
   let variants = {
@@ -217,6 +217,33 @@ function extractVariantInfo() {
   // Helper function to extract option text and selected state
   function extractOptionInfo(element) {
     const text = element.textContent.trim();
+
+    // Skip options that look like country codes with phone numbers
+    if (text.match(/^\+\d+ [A-Za-z]/)) {
+      return null;
+    }
+
+    // Skip generic placeholder text and customer information options
+    const skipPatterns = [
+      "select size",
+      "select option",
+      "availability",
+      "mr.",
+      "ms.",
+      "mrs.",
+      "miss",
+      "dr.",
+      "prof.",
+      "i'd rather not say",
+      "quality & characteristics",
+      "select",
+    ];
+
+    const lowerText = text.toLowerCase();
+    if (skipPatterns.some((pattern) => lowerText.includes(pattern))) {
+      return null;
+    }
+
     let selected = false;
 
     // Check various indicators of selection
@@ -310,7 +337,7 @@ function extractVariantInfo() {
     if (elements && elements.length > 0) {
       for (const element of elements) {
         const info = extractOptionInfo(element);
-        variants.colors.push(info);
+        if (info) variants.colors.push(info);
       }
       break;
     }
@@ -340,7 +367,7 @@ function extractVariantInfo() {
     if (elements && elements.length > 0) {
       for (const element of elements) {
         const info = extractOptionInfo(element);
-        variants.sizes.push(info);
+        if (info) variants.sizes.push(info);
       }
       break;
     }
@@ -357,6 +384,30 @@ function extractVariantInfo() {
     const selectName = select.getAttribute("name")
       ? select.getAttribute("name").toLowerCase()
       : "";
+
+    // Skip form fields that might be for customer information
+    if (
+      labelText.includes("country") ||
+      labelText.includes("phone") ||
+      labelText.includes("address") ||
+      labelText.includes("title") ||
+      labelText.includes("salutation") ||
+      labelText.includes("gender") ||
+      labelText.includes("options") ||
+      labelText.includes("quality") ||
+      labelText.includes("characteristics") ||
+      selectName.includes("country") ||
+      selectName.includes("phone") ||
+      selectName.includes("address") ||
+      selectName.includes("title") ||
+      selectName.includes("salutation") ||
+      selectName.includes("gender") ||
+      selectName.includes("options") ||
+      selectName.includes("quality") ||
+      selectName.includes("characteristics")
+    ) {
+      continue;
+    }
 
     // Decide which variant category this belongs to
     let variantType = "otherOptions";
@@ -383,14 +434,8 @@ function extractVariantInfo() {
     for (const option of options) {
       if (!option.value || option.value === "") continue;
 
-      const selected = option.selected;
-      const text = option.textContent.trim();
-
-      variants[variantType].push({
-        text: text,
-        selected: selected,
-        value: option.value,
-      });
+      const info = extractOptionInfo(option);
+      if (info) variants[variantType].push(info);
     }
   }
 
@@ -412,77 +457,44 @@ function extractVariantInfo() {
     if (elements && elements.length > 0) {
       for (const element of elements) {
         const info = extractOptionInfo(element);
-        variants.otherOptions.push(info);
+        if (info) variants.otherOptions.push(info);
       }
     }
   }
 
-  // 5. Try to extract variant info from structured data
-  try {
-    const jsonLdScripts = document.querySelectorAll(
-      'script[type="application/ld+json"]'
-    );
-    for (const script of jsonLdScripts) {
-      const data = JSON.parse(script.textContent);
+  return variants;
+}
 
-      // Function to find product data regardless of nesting
-      const findVariants = (obj) => {
-        if (!obj) return;
+/**
+ * Better handling of availability status
+ */
+function formatAvailability(availability) {
+  if (!availability) return null;
 
-        // Check for variants in standard formats
-        if (obj.hasOwnProperty("offers") && Array.isArray(obj.offers)) {
-          for (const offer of obj.offers) {
-            if (
-              offer.hasOwnProperty("name") ||
-              offer.hasOwnProperty("description")
-            ) {
-              const name = offer.name || offer.description;
-              if (name) {
-                // Try to determine if this is a color or size
-                if (
-                  name.toLowerCase().includes("color") ||
-                  name.toLowerCase().includes("colour")
-                ) {
-                  variants.colors.push({
-                    text: name,
-                    selected: false,
-                    value: null,
-                  });
-                } else if (name.toLowerCase().includes("size")) {
-                  variants.sizes.push({
-                    text: name,
-                    selected: false,
-                    value: null,
-                  });
-                } else {
-                  variants.otherOptions.push({
-                    text: name,
-                    selected: false,
-                    value: null,
-                  });
-                }
-              }
-            }
-          }
-        }
-
-        // Recursively check object properties
-        if (typeof obj === "object") {
-          for (const key in obj) {
-            if (obj.hasOwnProperty(key) && typeof obj[key] === "object") {
-              findVariants(obj[key]);
-            }
-          }
-        }
-      };
-
-      findVariants(data);
-    }
-  } catch (e) {
-    // JSON parsing error, continue
+  // Check for schema.org formats
+  if (
+    availability === "http://schema.org/InStock" ||
+    availability === "https://schema.org/InStock"
+  ) {
+    return "In Stock";
+  } else if (
+    availability === "http://schema.org/OutOfStock" ||
+    availability === "https://schema.org/OutOfStock"
+  ) {
+    return "Out of Stock";
+  } else if (
+    availability === "http://schema.org/LimitedAvailability" ||
+    availability === "https://schema.org/LimitedAvailability"
+  ) {
+    return "Limited Availability";
+  } else if (
+    availability === "http://schema.org/PreOrder" ||
+    availability === "https://schema.org/PreOrder"
+  ) {
+    return "Pre-Order";
   }
 
-  return variants;
+  return availability;
 }
 
 /**
@@ -666,7 +678,8 @@ function extractFromStructuredData() {
           if (offer) {
             result.price = offer.price || offer.lowPrice || null;
             result.currency = offer.priceCurrency || null;
-            result.availability = offer.availability || null;
+            result.availability =
+              formatAvailability(offer.availability) || null;
 
             // Check for original price
             if (offer.highPrice && offer.highPrice > offer.price) {
@@ -754,6 +767,16 @@ function extractFromMetaTags() {
   );
   if (brandMeta) {
     result.brand = brandMeta.getAttribute("content");
+  }
+
+  // Availability
+  const availabilityMeta = document.querySelector(
+    'meta[property="product:availability"]'
+  );
+  if (availabilityMeta) {
+    result.availability = formatAvailability(
+      availabilityMeta.getAttribute("content")
+    );
   }
 
   // Check if we have the minimum required info
@@ -881,6 +904,9 @@ function extractFromCommonSelectors() {
     ".availability",
     ".product-stock",
     ".urun-stok",
+    ".stock-status",
+    ".in-stock",
+    ".out-of-stock",
   ];
 
   // Brand selectors
@@ -983,8 +1009,26 @@ function extractFromCommonSelectors() {
   // Try to find availability
   for (const selector of availabilitySelectors) {
     const element = document.querySelector(selector);
-    if (element && element.textContent.trim()) {
-      result.availability = element.textContent.trim();
+    if (element) {
+      // Check both text content and attribute
+      const availText = element.textContent.trim();
+      if (availText) {
+        result.availability = availText;
+      } else {
+        // Check for schema.org value in the content attribute
+        const availAttr = element.getAttribute("content");
+        if (availAttr) {
+          result.availability = formatAvailability(availAttr);
+        }
+      }
+
+      // Also look at class names for availability hints
+      if (element.classList.contains("in-stock")) {
+        result.availability = "In Stock";
+      } else if (element.classList.contains("out-of-stock")) {
+        result.availability = "Out of Stock";
+      }
+
       break;
     }
   }
