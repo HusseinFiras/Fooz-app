@@ -97,12 +97,17 @@ class _WebViewScreenState extends State<WebViewScreen> {
     if (!mounted) return;
 
     setState(() {
-      productInfo = newProductInfo;
-      isProductPage = newProductInfo.isProductPage;
-
-      // Automatically hide loading indicator when product info is detected
-      if (newProductInfo.success) {
+      // Only show product info if we're on an actual product page
+      if (newProductInfo.isProductPage && newProductInfo.success) {
+        productInfo = newProductInfo;
+        isProductPage = true;
+        
+        // Automatically hide loading indicator when product info is detected
         isLoading = false;
+      } else {
+        // If we're not on a product page, don't show product card
+        productInfo = null;
+        isProductPage = false;
       }
     });
   }
@@ -112,6 +117,13 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
     setState(() {
       _currentUrl = url;
+      
+      // Reset product state when URL changes
+      // This helps ensure we don't show product info on non-product pages
+      if (!isLoading) {
+        productInfo = null;
+        isProductPage = false;
+      }
     });
   }
 
@@ -163,6 +175,14 @@ class _WebViewScreenState extends State<WebViewScreen> {
         productInfo: productInfo!,
       ),
     );
+  }
+
+  // Helper function to determine if we should show the product card
+  bool _shouldShowProductCard() {
+    return productInfo != null && 
+           productInfo!.success == true && 
+           isProductPage == true && 
+           productInfo!.price != null;
   }
 
   @override
@@ -408,8 +428,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
                 ),
               ),
             
-            // Product info card with animation
-            if (productInfo?.success == true)
+            // Product info card with animation - only show on actual product pages
+            if (_shouldShowProductCard())
               Positioned(
                 bottom: 20,
                 left: 20,

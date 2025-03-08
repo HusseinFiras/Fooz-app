@@ -11,8 +11,7 @@ class ProductDetailsBottomSheet extends StatelessWidget {
     required this.productInfo,
   }) : super(key: key);
 
-  Widget _buildInfoRow(String label, String value,
-      {TextStyle? style, TextOverflow textOverflow = TextOverflow.visible}) {
+  Widget _buildInfoRow(String label, String value, {TextStyle? style}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -27,7 +26,6 @@ class ProductDetailsBottomSheet extends StatelessWidget {
             child: Text(
               value,
               style: style,
-              overflow: textOverflow,
             ),
           ),
         ],
@@ -37,30 +35,20 @@ class ProductDetailsBottomSheet extends StatelessWidget {
 
   Widget _buildVariantSection(
       BuildContext context, String title, List<VariantOption> options) {
-    // Filter out nonsensical options (like country codes, honorifics, etc.)
+    // Enhanced filtering of nonsensical options
     final filteredOptions = options.where((option) {
-      // Skip options that look like country codes
-      if (option.text.startsWith('+') &&
-          RegExp(r'^\+\d+ ').hasMatch(option.text)) {
-        return false;
-      }
-
-      // Skip honorifics and placeholder options
-      final String lowerText = option.text.toLowerCase();
-      if ([
-            'mr.',
-            'mrs.',
-            'ms.',
-            'miss',
-            'dr.',
-            'prof.',
-            'select',
-            'i\'d rather not say'
-          ].contains(lowerText) ||
-          lowerText.contains('select size') ||
+      final String lowerText = option.text.toLowerCase().trim();
+      
+      // Skip options that look like country codes, honorifics, or form fields
+      if (option.text.startsWith('+') || 
+          lowerText.contains('mr.') || 
+          lowerText.contains('ms.') || 
+          lowerText.contains('mrs.') ||
+          lowerText.contains('select') ||
           lowerText.contains('availability') ||
           lowerText.contains('quality') ||
-          lowerText.contains('characteristics')) {
+          lowerText.contains('characteristics') ||
+          lowerText.contains('i\'d rather not say')) {
         return false;
       }
 
@@ -202,32 +190,20 @@ class ProductDetailsBottomSheet extends StatelessWidget {
     );
   }
 
-  // Format availability string for better display
   String _formatAvailability(String? availability) {
-    if (availability == null) return 'Unknown';
+    if (availability == null) return 'In Stock';
 
-    // Convert schema.org format to user-friendly text
-    if (availability == 'http://schema.org/InStock' ||
-        availability == 'https://schema.org/InStock') {
+    if (availability.contains('schema.org/InStock')) {
       return 'In Stock';
-    } else if (availability == 'http://schema.org/OutOfStock' ||
-        availability == 'https://schema.org/OutOfStock') {
+    } else if (availability.contains('schema.org/OutOfStock')) {
       return 'Out of Stock';
-    } else if (availability == 'http://schema.org/LimitedAvailability' ||
-        availability == 'https://schema.org/LimitedAvailability') {
+    } else if (availability.contains('schema.org/LimitedAvailability')) {
       return 'Limited Availability';
-    } else if (availability == 'http://schema.org/PreOrder' ||
-        availability == 'https://schema.org/PreOrder') {
+    } else if (availability.contains('schema.org/PreOrder')) {
       return 'Pre-Order';
-    } else if (availability.toLowerCase().contains('in stock')) {
-      return 'In Stock';
-    } else if (availability.toLowerCase().contains('out of stock')) {
-      return 'Out of Stock';
-    } else if (availability == 'Select' || availability.contains('select')) {
-      return 'Check Store Availability';
     }
 
-    return availability;
+    return 'In Stock';
   }
 
   @override
@@ -333,38 +309,7 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                       productInfo.variants!['sizes']!.isNotEmpty)
                     _buildVariantSection(
                         context, 'Sizes', productInfo.variants!['sizes']!),
-
-                  // Other option variants
-                  if (productInfo.variants != null &&
-                      productInfo.variants!.containsKey('otherOptions') &&
-                      productInfo.variants!['otherOptions']!.isNotEmpty)
-                    _buildVariantSection(context, 'Options',
-                        productInfo.variants!['otherOptions']!),
-
-                  if (productInfo.variants == null ||
-                      (productInfo.variants!['colors']?.isEmpty ?? true) &&
-                          (productInfo.variants!['sizes']?.isEmpty ?? true) &&
-                          (productInfo.variants!['otherOptions']?.isEmpty ??
-                              true))
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text(
-                        'No variants available for this product',
-                        style: TextStyle(
-                            color: Colors.grey[600],
-                            fontStyle: FontStyle.italic),
-                      ),
-                    ),
-
-                  const Divider(height: 24),
-
-                  // Additional product details
-                  if (productInfo.brand != null)
-                    _buildInfoRow('Brand:', productInfo.brand!),
-                  if (productInfo.availability != null)
-                    _buildInfoRow('Availability:',
-                        _formatAvailability(productInfo.availability)),
-
+                  
                   // Description - only show if not empty and not null
                   if (productInfo.description != null &&
                       productInfo.description!.trim().isNotEmpty &&
@@ -375,24 +320,6 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(productInfo.description!),
                   ],
-
-                  // Technical info (hidden by default)
-                  const SizedBox(height: 16),
-                  ExpansionTile(
-                    title: const Text('Technical Information'),
-                    initiallyExpanded: false,
-                    children: [
-                      _buildInfoRow('SKU:', productInfo.sku ?? 'Not available'),
-                      _buildInfoRow('Extraction Method:',
-                          productInfo.extractionMethod ?? 'Unknown'),
-                      _buildInfoRow('URL:', productInfo.url,
-                          textOverflow: TextOverflow.ellipsis),
-                      // Add debugging info for image URL
-                      _buildInfoRow(
-                          'Image URL:', productInfo.imageUrl ?? 'None',
-                          textOverflow: TextOverflow.ellipsis),
-                    ],
-                  ),
                 ],
               ),
             ),
