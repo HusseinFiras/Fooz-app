@@ -1,7 +1,7 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/home_screen.dart';
+import 'main_app.dart';
 
 void main() {
   // Initialize binding first
@@ -92,7 +92,7 @@ class MyApp extends StatelessWidget {
           indicatorColor: const Color(0xFFE0B872).withOpacity(0.2),
         ),
       ),
-      home: const HomePage(), // Changed from HomeScreen to HomePage
+      home: const MainApp(), // Changed from HomePage to MainApp
     );
   }
 }

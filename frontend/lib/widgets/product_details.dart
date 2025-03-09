@@ -2,14 +2,102 @@
 import 'package:flutter/material.dart';
 import '../models/product_info.dart';
 import '../models/variant_option.dart';
+import '../services/cart_service.dart';
 
-class ProductDetailsBottomSheet extends StatelessWidget {
+class ProductDetailsBottomSheet extends StatefulWidget {
   final ProductInfo productInfo;
 
   const ProductDetailsBottomSheet({
     Key? key,
     required this.productInfo,
   }) : super(key: key);
+
+  @override
+  State<ProductDetailsBottomSheet> createState() => _ProductDetailsBottomSheetState();
+}
+
+class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
+  final CartService _cartService = CartService();
+  bool _isInCart = false;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkCartStatus();
+  }
+
+  Future<void> _checkCartStatus() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    final inCart = await _cartService.isInCart(widget.productInfo);
+    
+    setState(() {
+      _isInCart = inCart;
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _addToCart() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    final success = await _cartService.addToCart(widget.productInfo);
+    
+    setState(() {
+      _isInCart = success;
+      _isLoading = false;
+    });
+    
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Added to cart'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.pop(context);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to add to cart'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _removeFromCart() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    final success = await _cartService.removeFromCart(widget.productInfo);
+    
+    setState(() {
+      _isInCart = !success;
+      _isLoading = false;
+    });
+    
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Removed from cart'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to remove from cart'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
 
   Widget _buildInfoRow(String label, String value, {TextStyle? style}) {
     return Padding(
@@ -219,7 +307,7 @@ class ProductDetailsBottomSheet extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  productInfo.title ?? 'Product Details',
+                  widget.productInfo.title ?? 'Product Details',
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.bold),
                   maxLines: 2,
@@ -241,7 +329,7 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Product image with improved handling
-                  if (productInfo.imageUrl != null)
+                  if (widget.productInfo.imageUrl != null)
                     Container(
                       height: 240,
                       width: double.infinity,
@@ -252,7 +340,7 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: Image.network(
-                          productInfo.imageUrl!,
+                          widget.productInfo.imageUrl!,
                           fit: BoxFit.contain,
                           loadingBuilder: (context, child, loadingProgress) {
                             if (loadingProgress == null) return child;
@@ -286,39 +374,39 @@ class ProductDetailsBottomSheet extends StatelessWidget {
                   const SizedBox(height: 16),
 
                   // Price information
-                  _buildInfoRow('Price:', productInfo.formattedPrice,
+                  _buildInfoRow('Price:', widget.productInfo.formattedPrice,
                       style: const TextStyle(
                           fontWeight: FontWeight.bold, fontSize: 18)),
-                  if (productInfo.originalPrice != null)
+                  if (widget.productInfo.originalPrice != null)
                     _buildInfoRow(
-                        'Original Price:', productInfo.formattedOriginalPrice,
+                        'Original Price:', widget.productInfo.formattedOriginalPrice,
                         style: const TextStyle(
                             decoration: TextDecoration.lineThrough)),
                   const SizedBox(height: 16),
 
                   // Color variants
-                  if (productInfo.variants != null &&
-                      productInfo.variants!.containsKey('colors') &&
-                      productInfo.variants!['colors']!.isNotEmpty)
+                  if (widget.productInfo.variants != null &&
+                      widget.productInfo.variants!.containsKey('colors') &&
+                      widget.productInfo.variants!['colors']!.isNotEmpty)
                     _buildVariantSection(
-                        context, 'Colors', productInfo.variants!['colors']!),
+                        context, 'Colors', widget.productInfo.variants!['colors']!),
 
                   // Size variants
-                  if (productInfo.variants != null &&
-                      productInfo.variants!.containsKey('sizes') &&
-                      productInfo.variants!['sizes']!.isNotEmpty)
+                  if (widget.productInfo.variants != null &&
+                      widget.productInfo.variants!.containsKey('sizes') &&
+                      widget.productInfo.variants!['sizes']!.isNotEmpty)
                     _buildVariantSection(
-                        context, 'Sizes', productInfo.variants!['sizes']!),
+                        context, 'Sizes', widget.productInfo.variants!['sizes']!),
                   
                   // Description - only show if not empty and not null
-                  if (productInfo.description != null &&
-                      productInfo.description!.trim().isNotEmpty &&
-                      !productInfo.description!.contains('schema.org')) ...[
+                  if (widget.productInfo.description != null &&
+                      widget.productInfo.description!.trim().isNotEmpty &&
+                      !widget.productInfo.description!.contains('schema.org')) ...[
                     const SizedBox(height: 16),
                     const Text('Description:',
                         style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    Text(productInfo.description!),
+                    Text(widget.productInfo.description!),
                   ],
                 ],
               ),
@@ -343,20 +431,27 @@ class ProductDetailsBottomSheet extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.shopping_cart),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black,
-                    foregroundColor: Colors.white,
-                  ),
-                  label: const Text('Add to Cart'),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Added to cart')),
-                    );
-                    Navigator.pop(context);
-                  },
-                ),
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _isInCart
+                        ? ElevatedButton.icon(
+                            icon: const Icon(Icons.remove_shopping_cart),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red[700],
+                              foregroundColor: Colors.white,
+                            ),
+                            label: const Text('Remove'),
+                            onPressed: _removeFromCart,
+                          )
+                        : ElevatedButton.icon(
+                            icon: const Icon(Icons.shopping_cart),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.black,
+                              foregroundColor: Colors.white,
+                            ),
+                            label: const Text('Add to Cart'),
+                            onPressed: _addToCart,
+                          ),
               ),
             ],
           ),
