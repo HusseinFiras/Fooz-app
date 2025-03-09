@@ -12,10 +12,12 @@ import '../widgets/site_selector.dart';
 
 class WebViewScreen extends StatefulWidget {
   final int initialSiteIndex;
+  final String? initialUrl;
 
   const WebViewScreen({
     Key? key,
     required this.initialSiteIndex,
+    this.initialUrl,
   }) : super(key: key);
 
   @override
@@ -54,7 +56,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
     );
 
     setState(() {
-      _currentUrl = _dataService.getUrlForIndex(_currentSiteIndex);
+      // If an initial URL is provided, use it; otherwise use the default URL for the site
+      _currentUrl = widget.initialUrl ?? _dataService.getUrlForIndex(_currentSiteIndex);
     });
 
     // Initialize webview with current URL
@@ -183,6 +186,111 @@ class _WebViewScreenState extends State<WebViewScreen> {
            productInfo!.success == true && 
            isProductPage == true && 
            productInfo!.price != null;
+  }
+
+ // Change this method in WebViewScreen
+String _generateSearchUrl(Map<String, String> retailer, String query) {
+  final baseUrl = retailer['url']!;
+  final encodedQuery = Uri.encodeComponent(query);
+  
+  final String domain = Uri.parse(baseUrl).host;
+  
+  switch (domain) {
+    case 'www.gucci.com':
+      return '$baseUrl/search?query=$encodedQuery';
+    case 'www.zara.com':
+      return '$baseUrl/search?q=$encodedQuery';
+    case 'www.stradivarius.com':
+      return '$baseUrl/search?term=$encodedQuery';
+    case 'www.cartier.com':
+      return '$baseUrl/search?q=$encodedQuery';
+    case 'www.swarovski.com':
+      return '$baseUrl/search/?q=$encodedQuery';
+    case 'www.guess.eu':
+      return '$baseUrl/search?q=$encodedQuery';
+    case 'shop.mango.com':
+      return '$baseUrl/search?kw=$encodedQuery';
+    case 'www.bershka.com':
+      return '$baseUrl/search?q=$encodedQuery';
+    case 'www.massimodutti.com':
+      return '$baseUrl/search?term=$encodedQuery';
+    case 'www.deepatelier.co':
+      return '$baseUrl/search?q=$encodedQuery';
+    case 'tr.pandora.net':
+      return '$baseUrl/search?q=$encodedQuery';
+    case 'www.miumiu.com':
+      return '$baseUrl/search?q=$encodedQuery';
+    case 'www.victoriassecret.com.tr':
+      return '$baseUrl/search?q=$encodedQuery';
+    case 'www.nocturne.com.tr':
+      return '$baseUrl/arama?q=$encodedQuery';
+    case 'www.beymen.com':
+      return '$baseUrl/search?q=$encodedQuery';
+    case 'www.bluediamond.com.tr':
+      return '$baseUrl/arama?q=$encodedQuery';
+    case 'www.lacoste.com.tr':
+      return '$baseUrl/arama?search=$encodedQuery';
+    case 'tr.mancofficial.com':
+      return '$baseUrl/search?type=product&q=$encodedQuery';
+    case 'www.ipekyol.com.tr':
+      return '$baseUrl/arama?q=$encodedQuery';
+    case 'www.sandro.com.tr':
+      return '$baseUrl/search?q=$encodedQuery';
+    default:
+      // Fallback to a common search pattern
+      return '$baseUrl/search?q=$encodedQuery';
+  }
+}
+
+  void _showSearchDialog() {
+    final textController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Search ${_dataService.getNameForIndex(_currentSiteIndex)}'),
+        content: TextField(
+          controller: textController,
+          decoration: const InputDecoration(
+            hintText: 'Enter search term...',
+            prefixIcon: Icon(Icons.search),
+          ),
+          autofocus: true,
+          textInputAction: TextInputAction.search,
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) {
+              Navigator.pop(context, value);
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () {
+              final searchText = textController.text.trim();
+              if (searchText.isNotEmpty) {
+                Navigator.pop(context, searchText);
+              }
+            },
+            child: const Text('SEARCH'),
+          ),
+        ],
+      ),
+    ).then((searchText) {
+      textController.dispose(); // Clean up the controller
+      
+      if (searchText != null && searchText.isNotEmpty) {
+        // Generate search URL for this retailer
+        final retailer = _dataService.retailSites[_currentSiteIndex];
+        final searchUrl = _generateSearchUrl(retailer, searchText);
+        
+        // Load the search URL
+        _webViewService.loadUrl(searchUrl);
+      }
+    });
   }
 
   @override
@@ -428,6 +536,22 @@ class _WebViewScreenState extends State<WebViewScreen> {
                 ),
               ),
             
+            // Add floating search button
+            Positioned(
+              bottom: _shouldShowProductCard() ? 100 : 20,
+              right: 16,
+              child: FloatingActionButton(
+                mini: true,
+                backgroundColor: Colors.white,
+                foregroundColor: theme.colorScheme.primary,
+                elevation: 4,
+                child: const Icon(Icons.search),
+                onPressed: () {
+                  _showSearchDialog();
+                },
+              ),
+            ),
+
             // Product info card with animation - only show on actual product pages
             if (_shouldShowProductCard())
               Positioned(

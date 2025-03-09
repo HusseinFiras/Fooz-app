@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import '../services/data_service.dart';
-import 'webview_screen.dart';  // Add this import// Ensure WebViewScreen is imported as a class
+import 'webview_screen.dart';
+import 'search_screen.dart';  // Add this import
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -69,6 +70,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         title: const Text('Luxury Retailers'),
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SearchScreen(),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: () {
