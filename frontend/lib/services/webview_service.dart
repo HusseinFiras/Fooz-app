@@ -1,9 +1,9 @@
-// lib/services/webview_service.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../models/product_info.dart';
+import '../utils/debug_utils.dart'; // Import our custom debug utility
 
 class WebViewService {
   final WebViewController controller = WebViewController();
@@ -18,6 +18,9 @@ class WebViewService {
   });
 
   void initializeWebView(String initialUrl) {
+    DebugLog.i('Initializing WebView with URL: $initialUrl',
+        category: DebugLog.WEBVIEW);
+
     controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
@@ -28,29 +31,109 @@ class WebViewService {
         NavigationDelegate(
           onPageStarted: _handlePageStarted,
           onPageFinished: _handlePageFinished,
+          onWebResourceError: (WebResourceError error) {
+            // Only log errors that might be important, filter out noise
+            if (error.errorType !=
+                    WebResourceErrorType.webContentProcessTerminated &&
+                error.errorType != WebResourceErrorType.unknown) {
+              DebugLog.e('WebView error: ${error.description}',
+                  category: DebugLog.WEBVIEW,
+                  details: 'Type: ${error.errorType}');
+            }
+          },
         ),
       )
+      // Note: Not using setDebugLoggingCallback since it's not available in this version
+      // Instead, we'll filter log messages in our DebugLog utility
       ..loadRequest(Uri.parse(initialUrl));
+
+    // Add custom JavaScript to filter console logs
+    _injectConsoleFilter();
+  }
+
+  // Inject code to filter WebView console logs
+  void _injectConsoleFilter() {
+    const filterScript = '''
+      // Override console methods to reduce noise
+      (function() {
+        const originalConsoleLog = console.log;
+        const originalConsoleWarn = console.warn;
+        const originalConsoleError = console.error;
+        
+        // Filter patterns we want to skip
+        const filterPatterns = [
+          'JQMIGRATE',
+          'ResizeObserver',
+          'localStorage',
+          'sessionStorage',
+          'Content Security Policy',
+          'Synchronous XMLHttpRequest',
+          'DevTools',
+          'Failed to load resource',
+          'The XDG_'
+        ];
+        
+        // Check if a message should be filtered
+        function shouldFilter(args) {
+          const msg = args.join(' ');
+          return filterPatterns.some(pattern => msg.includes(pattern));
+        }
+        
+        // Override console.log
+        console.log = function(...args) {
+          if (!shouldFilter(args)) {
+            originalConsoleLog.apply(console, args);
+          }
+        };
+        
+        // Override console.warn
+        console.warn = function(...args) {
+          if (!shouldFilter(args)) {
+            originalConsoleWarn.apply(console, args);
+          }
+        };
+        
+        // Override console.error
+        console.error = function(...args) {
+          if (!shouldFilter(args)) {
+            originalConsoleError.apply(console, args);
+          }
+        };
+      })();
+    ''';
+
+    try {
+      controller.runJavaScript(filterScript);
+    } catch (e) {
+      DebugLog.w('Could not inject console filter: $e',
+          category: DebugLog.WEBVIEW);
+    }
   }
 
   void _handleJavaScriptMessage(JavaScriptMessage message) {
     try {
       final data = jsonDecode(message.message);
-      final newProductInfo = ProductInfo.fromJson(data);
+      DebugLog.d('Received product data from JS',
+          category: DebugLog.PRODUCT, details: data);
 
+      final newProductInfo = ProductInfo.fromJson(data);
       onProductInfoChanged(newProductInfo);
 
       if (data.containsKey('navigated') && data['navigated'] == true) {
         onUrlChanged(data['url'] ?? '');
       }
     } catch (e) {
-      debugPrint('Error parsing product data: $e');
+      DebugLog.w('Error parsing product data JSON: $e',
+          category: DebugLog.PRODUCT);
 
       try {
+        // Fallback parsing for simple format
         final data = message.message.split('|');
         if (data.length >= 2) {
           final price = double.tryParse(data[0]);
           if (price != null) {
+            DebugLog.i('Using fallback parsing for product data',
+                category: DebugLog.PRODUCT);
             final newProductInfo = ProductInfo(
               isProductPage: true,
               title: data[1],
@@ -62,27 +145,35 @@ class WebViewService {
           }
         }
       } catch (e) {
-        debugPrint('Error with fallback parsing: $e');
+        DebugLog.e('Error with fallback parsing: $e',
+            category: DebugLog.PRODUCT);
       }
     }
   }
 
   void _handlePageStarted(String url) {
+    DebugLog.i('Page started loading: $url', category: DebugLog.WEBVIEW);
     onLoadingStateChanged(true);
     onUrlChanged(url);
   }
 
   void _handlePageFinished(String url) {
+    DebugLog.i('Page finished loading: $url', category: DebugLog.WEBVIEW);
     onLoadingStateChanged(false);
     _injectProductDetector();
   }
 
   Future<void> _injectProductDetector() async {
     try {
+      DebugLog.d('Injecting product detector script',
+          category: DebugLog.PRODUCT);
       final script = await rootBundle.loadString('assets/product_detector.js');
       controller.runJavaScript(script);
+      DebugLog.i('Product detector script injected successfully',
+          category: DebugLog.PRODUCT);
     } catch (e) {
-      debugPrint('Error loading product detector script: $e');
+      DebugLog.e('Error loading product detector script: $e',
+          category: DebugLog.PRODUCT);
       _injectLegacyPriceExtractor();
     }
   }
@@ -329,6 +420,7 @@ class WebViewService {
   }
 
   Future<void> loadUrl(String url) async {
+    DebugLog.i('Loading URL: $url', category: DebugLog.WEBVIEW);
     controller.loadRequest(Uri.parse(url));
   }
 
@@ -337,6 +429,7 @@ class WebViewService {
   }
 
   Future<void> goBack() async {
+    DebugLog.d('Navigating back', category: DebugLog.WEBVIEW);
     await controller.goBack();
   }
 
@@ -345,10 +438,12 @@ class WebViewService {
   }
 
   Future<void> goForward() async {
+    DebugLog.d('Navigating forward', category: DebugLog.WEBVIEW);
     await controller.goForward();
   }
 
   Future<void> reload() async {
+    DebugLog.d('Reloading page', category: DebugLog.WEBVIEW);
     await controller.reload();
   }
 }
