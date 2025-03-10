@@ -1,18 +1,517 @@
 /**
- * Improved Product Detection Script for E-commerce WebViews
- *
- * This script uses multiple detection methods to:
- * 1. Identify if the current page is a product page
- * 2. Extract product information using structured data, meta tags, and DOM analysis
- * 3. Monitor for changes and page navigation
- * 4. Send structured data back to Flutter
+ * Enhanced Product Detection Script with Improved Debugging for E-commerce WebViews
  */
+
+// Debug Configuration - Easy to toggle
+const DEBUG = {
+  enabled: true, // Master toggle for all debugging
+  methods: true, // Log detection methods being tried
+  selectors: false, // Log individual selectors being checked (very noisy)
+  dom: false, // Log detailed DOM inspection (extremely verbose)
+  data: true, // Log extracted data before processing
+  timing: false, // Log timing information (useful for performance analysis)
+  errorVerbose: true, // Show verbose error information
+  level: "info", // 'error', 'warn', 'info', 'debug', 'trace'
+
+  // Filter options
+  filterSelectors: true, // Only log selectors that succeeded
+  maxArrayLength: 3, // Maximum number of array items to show in logs
+  truncateText: 100, // Maximum length for text in logs
+
+  // Group certain logs to reduce clutter
+  groupLogs: true, // Group related logs together
+  expandGroups: false, // Auto-expand grouped logs
+};
+
+const debug = {
+  // Private formatting helpers
+  _formatValue: function (value) {
+    if (value === null || value === undefined) return String(value);
+
+    if (typeof value === "string") {
+      if (value.length > DEBUG.truncateText) {
+        return value.substring(0, DEBUG.truncateText) + "... (truncated)";
+      }
+      return value;
+    }
+
+    if (Array.isArray(value)) {
+      if (value.length > DEBUG.maxArrayLength) {
+        return `Array(${value.length}) [${value
+          .slice(0, DEBUG.maxArrayLength)
+          .map((v) => this._formatValue(v))
+          .join(", ")}...]`;
+      }
+    }
+
+    if (typeof value === "object" && value !== null) {
+      // For DOM elements, show a simplified representation
+      if (value.nodeType === 1) {
+        return `<${value.tagName.toLowerCase()}${
+          value.id ? ' id="' + value.id + '"' : ""
+        }${value.className ? ' class="' + value.className + '"' : ""}>`;
+      }
+
+      // For objects, limit content display
+      try {
+        const simpleObj = {};
+        let count = 0;
+        for (const key in value) {
+          if (count < 5 && value.hasOwnProperty(key)) {
+            simpleObj[key] = this._formatValue(value[key]);
+            count++;
+          }
+          if (count >= 5) {
+            simpleObj["..."] = `(${
+              Object.keys(value).length - 5
+            } more properties)`;
+            break;
+          }
+        }
+        return simpleObj;
+      } catch (e) {
+        return "[Object]";
+      }
+    }
+
+    return value;
+  },
+
+  _getPrefix: function (level, category) {
+    const timestamp = new Date().toISOString().substr(11, 8);
+    return `[${timestamp}][${category.toUpperCase()}]`;
+  },
+
+  // Public logging methods
+  info: function (message, data) {
+    if (!DEBUG.enabled || DEBUG.level === "error" || DEBUG.level === "warn")
+      return;
+    console.info(
+      `${this._getPrefix("info", "info")} ${message}`,
+      data ? this._formatValue(data) : ""
+    );
+  },
+
+  success: function (message, data) {
+    if (!DEBUG.enabled || DEBUG.level === "error" || DEBUG.level === "warn")
+      return;
+    console.log(
+      `${this._getPrefix("success", "success")} ✅ ${message}`,
+      data ? this._formatValue(data) : ""
+    );
+  },
+
+  error: function (message, data) {
+    if (!DEBUG.enabled) return;
+    console.error(
+      `${this._getPrefix("error", "error")} ❌ ${message}`,
+      data ? this._formatValue(data) : ""
+    );
+  },
+
+  warn: function (message, data) {
+    if (!DEBUG.enabled || DEBUG.level === "error") return;
+    console.warn(
+      `${this._getPrefix("warn", "warn")} ⚠️ ${message}`,
+      data ? this._formatValue(data) : ""
+    );
+  },
+
+  // Method tracking with less verbosity
+  method: {
+    start: function (methodName) {
+      if (!DEBUG.enabled || !DEBUG.methods) return null;
+      if (DEBUG.level === "trace" || DEBUG.level === "debug") {
+        console.debug(
+          `${debug._getPrefix("debug", "method")} Starting: ${methodName}`
+        );
+      }
+      return performance.now();
+    },
+
+    end: function (methodName, startTime, result) {
+      if (!DEBUG.enabled || !DEBUG.methods || !startTime) return;
+      const success =
+        result &&
+        (result.success === true ||
+          (typeof result === "object" && Object.keys(result).length > 0));
+
+      if (DEBUG.level === "trace" || DEBUG.level === "debug" || success) {
+        const duration = performance.now() - startTime;
+        console[success ? "log" : "debug"](
+          `${debug._getPrefix(
+            success ? "info" : "debug",
+            "method"
+          )} ${methodName} ${success ? "✅" : "❌"} (${duration.toFixed(0)}ms)`,
+          success ? debug._formatValue(result) : ""
+        );
+      }
+    },
+  },
+
+  // Selector checking with filtering
+  selector: {
+    check: function (selector, element, context = "") {
+      if (!DEBUG.enabled || !DEBUG.selectors) return;
+      if (DEBUG.filterSelectors && !element) return;
+
+      if (DEBUG.level === "trace" || DEBUG.level === "debug") {
+        const found = !!element;
+        console.debug(
+          `${debug._getPrefix("debug", "selector")} ${
+            found ? "✅" : "❌"
+          } ${context} Selector: ${selector}`
+        );
+      }
+    },
+
+    checkAll: function (selectors, foundElement, context = "") {
+      if (!DEBUG.enabled || !DEBUG.selectors) return;
+      if (DEBUG.filterSelectors && !foundElement) return;
+
+      if (DEBUG.level === "trace" || DEBUG.level === "debug") {
+        if (foundElement) {
+          const matchingSelector = selectors.find(
+            (s) => document.querySelector(s) === foundElement
+          );
+          console.debug(
+            `${debug._getPrefix(
+              "debug",
+              "selector"
+            )} ✅ ${context} Found match with: ${matchingSelector}`
+          );
+        }
+      }
+    },
+  },
+
+  // Data logging with cleaner output
+  data: {
+    extracted: function (source, data) {
+      if (!DEBUG.enabled || !DEBUG.data) return;
+
+      if (DEBUG.groupLogs) {
+        console.groupCollapsed(
+          `${debug._getPrefix("debug", "data")} From ${source}`
+        );
+        console.log(debug._formatValue(data));
+        console.groupEnd();
+      } else {
+        console.log(
+          `${debug._getPrefix("debug", "data")} From ${source}:`,
+          debug._formatValue(data)
+        );
+      }
+    },
+
+    processed: function (stage, data) {
+      if (!DEBUG.enabled || !DEBUG.data) return;
+
+      if (DEBUG.groupLogs) {
+        console.groupCollapsed(
+          `${debug._getPrefix("debug", "data")} Processed (${stage})`
+        );
+        console.log(debug._formatValue(data));
+        console.groupEnd();
+      } else {
+        console.log(
+          `${debug._getPrefix("debug", "data")} Processed (${stage}):`,
+          debug._formatValue(data)
+        );
+      }
+    },
+
+    sent: function (data) {
+      if (!DEBUG.enabled || !DEBUG.data) return;
+
+      // Always log data sent to Flutter clearly
+      if (DEBUG.groupLogs) {
+        console.group(
+          `${debug._getPrefix("info", "data")} 📤 Sending to Flutter`
+        );
+        console.log(debug._formatValue(data));
+        console.groupEnd();
+      } else {
+        console.log(
+          `${debug._getPrefix("info", "data")} 📤 Sending to Flutter:`,
+          debug._formatValue(data)
+        );
+      }
+    },
+  },
+
+  // Simple timing logs
+  timing: {
+    start: function (label) {
+      if (!DEBUG.enabled || !DEBUG.timing) return null;
+      if (DEBUG.level === "trace" || DEBUG.level === "debug") {
+        console.debug(
+          `${debug._getPrefix("debug", "timing")} ⏱️ Started: ${label}`
+        );
+      }
+      return performance.now();
+    },
+
+    end: function (label, startTime) {
+      if (!DEBUG.enabled || !DEBUG.timing || !startTime) return;
+
+      if (DEBUG.level === "trace" || DEBUG.level === "debug") {
+        const duration = performance.now() - startTime;
+        console.debug(
+          `${debug._getPrefix(
+            "debug",
+            "timing"
+          )} ⏱️ Finished: ${label} (${duration.toFixed(0)}ms)`
+        );
+      }
+    },
+  },
+
+  // Clear the console
+  clear: function () {
+    console.clear();
+    console.log(`${this._getPrefix("info", "debug")} Console cleared`);
+  },
+};
+
+// Override console.error to filter out noise from WebView
+const originalConsoleError = console.error;
+console.error = function (...args) {
+  // Filter out common WebView errors that aren't helpful
+  const errorText = args.join(" ");
+  const ignorePatterns = [
+    "ResizeObserver",
+    "The XDG_",
+    "Failed to load resource",
+    "JQMIGRATE",
+    "ServiceWorker",
+    "Mixed Content",
+    "Audit",
+    "Non-passive event listener",
+    "Request was interrupted",
+    "SourceMap",
+  ];
+
+  if (ignorePatterns.some((pattern) => errorText.includes(pattern))) {
+    // Skip these errors entirely
+    return;
+  }
+
+  // Let through other errors
+  originalConsoleError.apply(console, args);
+};
+
+// Clean up console warnings too
+const originalConsoleWarn = console.warn;
+console.warn = function (...args) {
+  // Filter out common WebView warnings that aren't helpful
+  const warnText = args.join(" ");
+  const ignorePatterns = [
+    "JQMIGRATE",
+    "ResizeObserver",
+    "localStorage",
+    "sessionStorage",
+    "Content Security Policy",
+    "Synchronous XMLHttpRequest",
+    "DevTools",
+    "Cookies",
+    "CORS",
+  ];
+
+  if (ignorePatterns.some((pattern) => warnText.includes(pattern))) {
+    // Skip these warnings entirely
+    return;
+  }
+
+  // Let through other warnings
+  originalConsoleWarn.apply(console, args);
+};
+
+// Initialize with a clean console
+setTimeout(() => {
+  if (DEBUG.enabled) {
+    debug.clear();
+    debug.info("🔍 Product Detector initialized with clean debugging", {
+      url: window.location.href,
+      title: document.title,
+    });
+  }
+}, 100);
 
 // Initialize the product detector when the script is loaded
 (function () {
+  // Configure debug logger
+  initializeDebugger();
+
   // Start script with shorter delay to be more responsive
-  setTimeout(initProductDetector, 500);
+  const initTimer = debug.timing.start("Initialization");
+  setTimeout(() => {
+    initProductDetector();
+    debug.timing.end("Initialization", initTimer);
+  }, 500);
 })();
+
+/**
+ * Initialize debug logging system
+ */
+function initializeDebugger() {
+  // Simple debug system
+  window.debug = {
+    log: function (level, category, message, data) {
+      if (!DEBUG.enabled) return;
+
+      // Format timestamp for logs
+      const timestamp = new Date().toISOString().substr(11, 8);
+
+      // Choose style based on level and category
+      const styles = {
+        error:
+          "background:#f8d7da; color:#721c24; padding:2px 5px; border-radius:3px;",
+        warn: "background:#fff3cd; color:#856404; padding:2px 5px; border-radius:3px;",
+        info: "background:#d1ecf1; color:#0c5460; padding:2px 5px; border-radius:3px;",
+        success:
+          "background:#d4edda; color:#155724; padding:2px 5px; border-radius:3px;",
+        debug:
+          "background:#e2e3e5; color:#383d41; padding:2px 5px; border-radius:3px;",
+        method:
+          "background:#cce5ff; color:#004085; padding:2px 5px; border-radius:3px;",
+        data: "color:#6610f2; font-weight:bold;",
+        timing: "color:#fd7e14;",
+      };
+
+      const style = styles[category] || styles[level] || "";
+
+      // Format the prefix for the log
+      const prefix = `%c[${timestamp}][${category.toUpperCase()}]`;
+
+      // Log the message with appropriate styling
+      if (data !== null && data !== undefined) {
+        console.groupCollapsed(`${prefix} ${message}`, style);
+        console.log("Details:", data);
+        console.groupEnd();
+      } else {
+        console.log(`${prefix} ${message}`, style);
+      }
+    },
+
+    // Core logging methods
+    info: function (message, data) {
+      this.log("info", "info", message, data);
+    },
+
+    error: function (message, data) {
+      this.log("error", "error", message, data);
+    },
+
+    success: function (message, data) {
+      this.log("info", "success", message, data);
+    },
+
+    // Method tracking
+    method: {
+      start: function (methodName) {
+        if (!DEBUG.methods) return null;
+        debug.log("debug", "method", `Starting: ${methodName}`);
+        return performance.now();
+      },
+
+      end: function (methodName, startTime, result) {
+        if (!DEBUG.methods || !startTime) return;
+        const duration = performance.now() - startTime;
+        const success =
+          result && (result.success === true || Object.keys(result).length > 0);
+        debug.log(
+          "debug",
+          "method",
+          `${methodName} ${success ? "✅" : "❌"} (${duration.toFixed(2)}ms)`,
+          result
+        );
+        return duration;
+      },
+    },
+
+    // Selector tracking
+    selector: {
+      check: function (selector, element, context = "") {
+        if (!DEBUG.selectors) return;
+        const found = !!element;
+        debug.log(
+          "debug",
+          "selector",
+          `${found ? "✅" : "❌"} ${context} Selector: ${selector}`,
+          found ? { text: element.textContent?.trim() } : null
+        );
+      },
+
+      checkAll: function (selectors, foundElement, context = "") {
+        if (!DEBUG.selectors) return;
+        if (foundElement) {
+          const matchingSelector = selectors.find(
+            (s) => document.querySelector(s) === foundElement
+          );
+          debug.log(
+            "debug",
+            "selector",
+            `✅ ${context} Found match with: ${matchingSelector}`,
+            { element: foundElement, text: foundElement.textContent?.trim() }
+          );
+        } else {
+          debug.log(
+            "debug",
+            "selector",
+            `❌ ${context} None of these selectors matched: ${selectors.join(
+              ", "
+            )}`
+          );
+        }
+      },
+    },
+
+    // Data tracking
+    data: {
+      extracted: function (source, data) {
+        if (!DEBUG.data) return;
+        debug.log("debug", "data", `From ${source}:`, data);
+      },
+
+      processed: function (stage, data) {
+        if (!DEBUG.data) return;
+        debug.log("debug", "data", `Processed (${stage}):`, data);
+      },
+
+      sent: function (data) {
+        if (!DEBUG.data) return;
+        debug.log("info", "data", `Sending to Flutter:`, data);
+      },
+    },
+
+    // Timing functions
+    timing: {
+      start: function (label) {
+        if (!DEBUG.timing) return null;
+        debug.log("debug", "timing", `⏱️ Started: ${label}`);
+        return performance.now();
+      },
+
+      end: function (label, startTime) {
+        if (!DEBUG.timing || !startTime) return;
+        const duration = performance.now() - startTime;
+        debug.log(
+          "debug",
+          "timing",
+          `⏱️ Finished: ${label} (${duration.toFixed(2)}ms)`
+        );
+        return duration;
+      },
+    },
+  };
+
+  // Log initial debug information
+  debug.info("Product Detector debugging initialized", {
+    url: window.location.href,
+    title: document.title,
+  });
+}
 
 /**
  * Main function to initialize product detection
@@ -30,16 +529,31 @@ function initProductDetector() {
   let observer = null;
   let initialAttemptComplete = false;
 
+  debug.info("Product Detector initialized", {
+    checkInterval: CHECK_INTERVAL,
+    maxRetries: MAX_RETRIES,
+  });
+
   // Function to report data back to Flutter
   function reportToFlutter(data) {
     if (window.FlutterChannel) {
+      debug.data.sent(data);
       window.FlutterChannel.postMessage(JSON.stringify(data));
+    } else {
+      debug.error("FlutterChannel not available for communication");
     }
   }
 
   // Main product detection function
   function detectAndReportProduct() {
+    const detectionTimer = debug.timing.start(
+      "Product Detection (Full Process)"
+    );
+
+    debug.info("Starting product detection");
     const productData = extractProductInfo();
+
+    debug.data.processed("final", productData);
 
     // If we've already detected and reported this product, don't report again
     // unless something significant changed
@@ -48,6 +562,8 @@ function initProductDetector() {
         lastProductData.title === productData.title &&
         lastProductData.price === productData.price
       ) {
+        debug.info("Skipping report - product unchanged");
+        debug.timing.end("Product Detection (Full Process)", detectionTimer);
         return;
       }
     }
@@ -62,6 +578,8 @@ function initProductDetector() {
     if (productData.success) {
       productDetected = true;
       initialAttemptComplete = true;
+      debug.success("Product successfully detected!");
+      debug.timing.end("Product Detection (Full Process)", detectionTimer);
       return true;
     }
 
@@ -71,6 +589,8 @@ function initProductDetector() {
 
       // If it's clearly not a product page, stop trying aggressively
       if (!productData.isProductPage) {
+        debug.info("Not a product page, reducing retry attempts");
+
         reportToFlutter({
           isProductPage: false,
           success: false,
@@ -83,16 +603,24 @@ function initProductDetector() {
       }
     }
 
+    debug.timing.end("Product Detection (Full Process)", detectionTimer);
     return false;
   }
 
   // Function to retry detection with increasing delays
   function retryDetection() {
     if (retryCount >= MAX_RETRIES || productDetected) {
+      debug.info(
+        `Retry limit reached (${retryCount}/${MAX_RETRIES}) or product already detected`
+      );
       return;
     }
 
     retryCount++;
+    debug.info(
+      `Scheduling retry #${retryCount} in ${RETRY_DELAY * retryCount}ms`
+    );
+
     setTimeout(() => {
       if (!detectAndReportProduct()) {
         retryDetection();
@@ -106,6 +634,9 @@ function initProductDetector() {
   // Then follow with normal retry pattern
   setTimeout(() => {
     if (!productDetected) {
+      debug.info(
+        "Initial detection didn't find product, starting retry sequence"
+      );
       retryDetection();
     }
   }, 700);
@@ -115,8 +646,14 @@ function initProductDetector() {
  * Function to check if current page is a product page
  */
 function isProductPage() {
+  const pageCheckTimer = debug.timing.start("Check if Product Page");
+
+  debug.info("Checking if current page is a product page");
+
   // 1. Check URL patterns
   const url = window.location.href;
+  debug.info(`Current URL: ${url}`);
+
   const productUrlPatterns = [
     /\/p\//,
     /\/product\//,
@@ -133,34 +670,62 @@ function isProductPage() {
     /\/[a-z0-9-_]{6,}\/p\/[a-z0-9-_]{6,}/,
   ];
 
-  if (productUrlPatterns.some((pattern) => pattern.test(url))) {
-    return true;
+  for (const pattern of productUrlPatterns) {
+    if (pattern.test(url)) {
+      debug.success(`URL matches product pattern: ${pattern}`);
+      debug.timing.end("Check if Product Page", pageCheckTimer);
+      return true;
+    }
   }
 
   // 2. Check for schema.org product markup
   const jsonLdScripts = document.querySelectorAll(
     'script[type="application/ld+json"]'
   );
+  debug.info(`Found ${jsonLdScripts.length} JSON-LD scripts`);
+
   for (const script of jsonLdScripts) {
     try {
       const data = JSON.parse(script.textContent);
+      debug.data.extracted("json-ld script", data);
+
       if (
         data["@type"] === "Product" ||
         (Array.isArray(data) &&
           data.some((item) => item["@type"] === "Product"))
       ) {
+        debug.success("Found Product type in JSON-LD");
+        debug.timing.end("Check if Product Page", pageCheckTimer);
         return true;
       }
     } catch (e) {
+      debug.error("Error parsing JSON-LD script", e);
       // JSON parsing error, continue to next script
     }
   }
 
   // 3. Check for product-specific meta tags
-  if (
-    document.querySelector('meta[property="og:type"][content="product"]') ||
-    document.querySelector('meta[property="product:price:amount"]')
-  ) {
+  const metaProductType = document.querySelector(
+    'meta[property="og:type"][content="product"]'
+  );
+  const metaProductPrice = document.querySelector(
+    'meta[property="product:price:amount"]'
+  );
+
+  debug.selector.check(
+    'meta[property="og:type"][content="product"]',
+    metaProductType,
+    "Meta Tag"
+  );
+  debug.selector.check(
+    'meta[property="product:price:amount"]',
+    metaProductPrice,
+    "Meta Tag"
+  );
+
+  if (metaProductType || metaProductPrice) {
+    debug.success("Found product meta tags");
+    debug.timing.end("Check if Product Page", pageCheckTimer);
     return true;
   }
 
@@ -189,342 +754,60 @@ function isProductPage() {
     ".urun-secenekleri",
   ];
 
-  if (productIndicators.some((selector) => document.querySelector(selector))) {
+  // Track matches
+  let foundIndicator = null;
+  for (const selector of productIndicators) {
+    const element = document.querySelector(selector);
+    if (element) {
+      foundIndicator = { selector, element };
+      break;
+    }
+  }
+
+  if (foundIndicator) {
+    debug.success(`Found product indicator: ${foundIndicator.selector}`);
+    debug.timing.end("Check if Product Page", pageCheckTimer);
     return true;
   }
 
   // 5. Check for typical product page structure
-  const hasPrice =
-    document.querySelector('[itemprop="price"]') ||
-    !!document.body.innerText.match(/[0-9]+[,.][0-9]+\s*(TL|₺|\$|€|£)/);
+  const priceElement = document.querySelector('[itemprop="price"]');
+  debug.selector.check('[itemprop="price"]', priceElement, "Price Element");
 
-  const hasProductTitle =
-    document.querySelector("h1") && document.querySelectorAll("h1").length < 3; // Usually just one main title
+  // Check for price pattern in text
+  const hasPricePattern = !!document.body.innerText.match(
+    /[0-9]+[,.][0-9]+\s*(TL|₺|\$|€|£)/
+  );
+  debug.info(`Price pattern in page text: ${hasPricePattern}`);
 
-  return hasPrice && hasProductTitle;
-}
+  // Check for product title
+  const titleElement = document.querySelector("h1");
+  const titleCount = document.querySelectorAll("h1").length;
+  debug.info(
+    `Title elements: ${titleCount}`,
+    titleElement ? { text: titleElement.textContent } : null
+  );
 
-/**
- * Improved variant extraction to avoid extracting country codes
- */
-function extractVariantInfo() {
-  let variants = {
-    colors: [],
-    sizes: [],
-    otherOptions: [],
-  };
+  const hasProductTitle = titleElement && titleCount < 3; // Usually just one main title
 
-  // Helper function to extract option text and selected state
-  function extractOptionInfo(element) {
-    const text = element.textContent.trim();
+  const result = (priceElement || hasPricePattern) && hasProductTitle;
 
-    // Skip options that look like country codes with phone numbers
-    if (text.match(/^\+\d+ [A-Za-z]/)) {
-      return null;
-    }
-
-    // Skip generic placeholder text and customer information options
-    const skipPatterns = [
-      "select size",
-      "select option",
-      "availability",
-      "mr.",
-      "ms.",
-      "mrs.",
-      "miss",
-      "dr.",
-      "prof.",
-      "i'd rather not say",
-      "quality & characteristics",
-      "select",
-    ];
-
-    const lowerText = text.toLowerCase();
-    if (skipPatterns.some((pattern) => lowerText.includes(pattern))) {
-      return null;
-    }
-
-    let selected = false;
-
-    // Check various indicators of selection
-    if (
-      element.hasAttribute("selected") ||
-      element.hasAttribute("checked") ||
-      element.classList.contains("selected") ||
-      element.classList.contains("active") ||
-      element.getAttribute("aria-selected") === "true"
-    ) {
-      selected = true;
-    }
-
-    // For color options, try to get the color value
-    let colorValue = null;
-    const bgColor = window.getComputedStyle(element).backgroundColor;
-    if (
-      bgColor &&
-      bgColor !== "transparent" &&
-      bgColor !== "rgba(0, 0, 0, 0)"
-    ) {
-      colorValue = bgColor;
-    }
-
-    // Try to get data-color attribute
-    const dataColor =
-      element.getAttribute("data-color") ||
-      element.getAttribute("data-value") ||
-      element.getAttribute("data-option-value");
-    if (dataColor) {
-      colorValue = dataColor;
-    }
-
-    // Check for style attribute with background-color
-    const style = element.getAttribute("style");
-    if (style && style.includes("background-color")) {
-      const match = style.match(/background-color:\s*([^;]+)/i);
-      if (match) {
-        colorValue = match[1];
-      }
-    }
-
-    // Check for an img child that might represent the color
-    const colorImg = element.querySelector("img");
-    if (colorImg) {
-      const imgSrc = colorImg.getAttribute("src");
-      if (imgSrc) {
-        // Convert relative URLs to absolute
-        let absoluteImgSrc = imgSrc;
-        if (imgSrc.startsWith("/")) {
-          absoluteImgSrc = window.location.origin + imgSrc;
-        } else if (!imgSrc.startsWith("http")) {
-          const baseUrl = window.location.href.substring(
-            0,
-            window.location.href.lastIndexOf("/") + 1
-          );
-          absoluteImgSrc = baseUrl + imgSrc;
-        }
-        colorValue = absoluteImgSrc;
-      }
-    }
-
-    return {
-      text: text,
-      selected: selected,
-      value: colorValue,
-    };
-  }
-
-  // 1. Try to find color options
-  const colorSelectors = [
-    ".color-option",
-    ".color-selector",
-    ".color-swatch",
-    ".color-select",
-    ".color-radio",
-    ".color-box",
-    '[data-option-type="color"]',
-    '[data-attribute="color"]',
-    ".js-color-variant",
-    ".color-tiles",
-    ".color-squares",
-    // Turkish-specific selectors
-    ".renk-secimi",
-    ".renk-secenekleri",
-    ".renk-kutusu",
-  ];
-
-  for (const selector of colorSelectors) {
-    const elements = document.querySelectorAll(selector);
-    if (elements && elements.length > 0) {
-      for (const element of elements) {
-        const info = extractOptionInfo(element);
-        if (info) variants.colors.push(info);
-      }
-      break;
-    }
-  }
-
-  // 2. Try to find size options
-  const sizeSelectors = [
-    ".size-option",
-    ".size-selector",
-    ".size-swatch",
-    ".size-select",
-    ".size-radio",
-    ".size-box",
-    '[data-option-type="size"]',
-    '[data-attribute="size"]',
-    ".js-size-variant",
-    ".size-tiles",
-    ".size-squares",
-    // Turkish-specific selectors
-    ".beden-secimi",
-    ".beden-secenekleri",
-    ".olcu-kutusu",
-  ];
-
-  for (const selector of sizeSelectors) {
-    const elements = document.querySelectorAll(selector);
-    if (elements && elements.length > 0) {
-      for (const element of elements) {
-        const info = extractOptionInfo(element);
-        if (info) variants.sizes.push(info);
-      }
-      break;
-    }
-  }
-
-  // 3. Look for select elements that might contain variants
-  const selectElements = document.querySelectorAll("select");
-  for (const select of selectElements) {
-    // Try to determine what type of variant this is
-    const labelElement = document.querySelector(`label[for="${select.id}"]`);
-    const labelText = labelElement
-      ? labelElement.textContent.toLowerCase()
-      : "";
-    const selectName = select.getAttribute("name")
-      ? select.getAttribute("name").toLowerCase()
-      : "";
-
-    // Skip form fields that might be for customer information
-    if (
-      labelText.includes("country") ||
-      labelText.includes("phone") ||
-      labelText.includes("address") ||
-      labelText.includes("title") ||
-      labelText.includes("salutation") ||
-      labelText.includes("gender") ||
-      labelText.includes("options") ||
-      labelText.includes("quality") ||
-      labelText.includes("characteristics") ||
-      selectName.includes("country") ||
-      selectName.includes("phone") ||
-      selectName.includes("address") ||
-      selectName.includes("title") ||
-      selectName.includes("salutation") ||
-      selectName.includes("gender") ||
-      selectName.includes("options") ||
-      selectName.includes("quality") ||
-      selectName.includes("characteristics")
-    ) {
-      continue;
-    }
-
-    // Decide which variant category this belongs to
-    let variantType = "otherOptions";
-    if (
-      labelText.includes("color") ||
-      labelText.includes("colour") ||
-      labelText.includes("renk") ||
-      selectName.includes("color") ||
-      selectName.includes("colour") ||
-      selectName.includes("renk")
-    ) {
-      variantType = "colors";
-    } else if (
-      labelText.includes("size") ||
-      labelText.includes("beden") ||
-      selectName.includes("size") ||
-      selectName.includes("beden")
-    ) {
-      variantType = "sizes";
-    }
-
-    // Extract options from this select
-    const options = select.querySelectorAll("option");
-    for (const option of options) {
-      if (!option.value || option.value === "") continue;
-
-      const info = extractOptionInfo(option);
-      if (info) variants[variantType].push(info);
-    }
-  }
-
-  // 4. Find other common variant selectors (radio buttons, etc.)
-  const otherVariantSelectors = [
-    ".js-option-selector",
-    ".variant-option",
-    ".variant-select",
-    ".product-form__option",
-    ".option-value",
-    ".option-selector",
-    // Turkish-specific selectors
-    ".urun-secenek",
-    ".varyasyon-secimi",
-  ];
-
-  for (const selector of otherVariantSelectors) {
-    const elements = document.querySelectorAll(selector);
-    if (elements && elements.length > 0) {
-      for (const element of elements) {
-        const info = extractOptionInfo(element);
-        if (info) variants.otherOptions.push(info);
-      }
-    }
-  }
-
-  return variants;
-}
-
-/**
- * Better handling of availability status
- */
-function formatAvailability(availability) {
-  if (!availability) return null;
-
-  // Check for schema.org formats
-  if (
-    availability === "http://schema.org/InStock" ||
-    availability === "https://schema.org/InStock"
-  ) {
-    return "In Stock";
-  } else if (
-    availability === "http://schema.org/OutOfStock" ||
-    availability === "https://schema.org/OutOfStock"
-  ) {
-    return "Out of Stock";
-  } else if (
-    availability === "http://schema.org/LimitedAvailability" ||
-    availability === "https://schema.org/LimitedAvailability"
-  ) {
-    return "Limited Availability";
-  } else if (
-    availability === "http://schema.org/PreOrder" ||
-    availability === "https://schema.org/PreOrder"
-  ) {
-    return "Pre-Order";
-  }
-
-  return availability;
-}
-
-/**
- * Ensures image URLs are absolute
- */
-function makeImageUrlAbsolute(imgSrc) {
-  if (!imgSrc) return null;
-
-  // Already absolute URL
-  if (imgSrc.startsWith("http") || imgSrc.startsWith("https")) {
-    return imgSrc;
-  }
-
-  // Convert relative URLs to absolute
-  if (imgSrc.startsWith("/")) {
-    return window.location.origin + imgSrc;
+  if (result) {
+    debug.success("Page has price and title elements typical of product pages");
   } else {
-    // Handle relative paths without leading slash
-    const baseUrl = window.location.href.substring(
-      0,
-      window.location.href.lastIndexOf("/") + 1
-    );
-    return baseUrl + imgSrc;
+    debug.info("Page structure doesn't match typical product page");
   }
+
+  debug.timing.end("Check if Product Page", pageCheckTimer);
+  return result;
 }
 
 /**
  * Main function to extract product information using multiple methods
  */
 function extractProductInfo() {
+  const extractionTimer = debug.timing.start("Extract Product Info");
+
   // Create a result object
   const result = {
     isProductPage: isProductPage(),
@@ -544,51 +827,91 @@ function extractProductInfo() {
     success: false,
   };
 
+  debug.info(
+    `Page analysis: ${
+      result.isProductPage ? "This is a product page" : "Not a product page"
+    }`
+  );
+
   if (!result.isProductPage) {
+    debug.timing.end("Extract Product Info", extractionTimer);
     return result;
   }
 
   // Extract variant information using dedicated function
+  const variantTimer = debug.timing.start("Extract Variants");
   result.variants = extractVariantInfo();
+  debug.data.extracted("variants", result.variants);
+  debug.timing.end("Extract Variants", variantTimer);
 
   // Use multiple methods to extract data, starting with the most reliable
 
   // Method 1: Structured data (schema.org)
+  const structuredTimer = debug.method.start("extractFromStructuredData");
   const structuredData = extractFromStructuredData();
+  const structuredResult = debug.method.end(
+    "extractFromStructuredData",
+    structuredTimer,
+    structuredData
+  );
+
   if (structuredData.success) {
+    debug.success("Successfully extracted data from structured data");
     Object.assign(result, structuredData);
     result.extractionMethod = "structured_data";
     result.success = true;
+    debug.timing.end("Extract Product Info", extractionTimer);
     return result;
   }
 
   // Method 2: Meta tags
+  const metaTimer = debug.method.start("extractFromMetaTags");
   const metaTags = extractFromMetaTags();
+  debug.method.end("extractFromMetaTags", metaTimer, metaTags);
+
   if (metaTags.success) {
+    debug.success("Successfully extracted data from meta tags");
     Object.assign(result, metaTags);
     result.extractionMethod = "meta_tags";
     result.success = true;
+    debug.timing.end("Extract Product Info", extractionTimer);
     return result;
   }
 
   // Method 3: Common selectors
+  const selectorTimer = debug.method.start("extractFromCommonSelectors");
   const commonSelectors = extractFromCommonSelectors();
+  debug.method.end(
+    "extractFromCommonSelectors",
+    selectorTimer,
+    commonSelectors
+  );
+
   if (commonSelectors.success) {
+    debug.success("Successfully extracted data from common selectors");
     Object.assign(result, commonSelectors);
     result.extractionMethod = "common_selectors";
     result.success = true;
+    debug.timing.end("Extract Product Info", extractionTimer);
     return result;
   }
 
   // Method 4: Content scanning (least reliable, but fallback)
+  const scanTimer = debug.method.start("scanContentForProductInfo");
   const contentScan = scanContentForProductInfo();
+  debug.method.end("scanContentForProductInfo", scanTimer, contentScan);
+
   if (contentScan.success) {
+    debug.success("Successfully extracted data from content scanning");
     Object.assign(result, contentScan);
     result.extractionMethod = "content_scan";
     result.success = true;
+    debug.timing.end("Extract Product Info", extractionTimer);
     return result;
   }
 
+  debug.info("All extraction methods failed");
+  debug.timing.end("Extract Product Info", extractionTimer);
   return result;
 }
 
@@ -596,6 +919,10 @@ function extractProductInfo() {
  * Extract product info from structured data (JSON-LD)
  */
 function extractFromStructuredData() {
+  const structuredDataTimer = debug.timing.start("Structured Data Extraction");
+
+  debug.info("Attempting extraction from structured data (JSON-LD)");
+
   const result = {
     title: null,
     price: null,
@@ -612,15 +939,20 @@ function extractFromStructuredData() {
   const jsonLdScripts = document.querySelectorAll(
     'script[type="application/ld+json"]'
   );
+
+  debug.info(`Found ${jsonLdScripts.length} JSON-LD scripts to examine`);
+
   for (const script of jsonLdScripts) {
     try {
       const data = JSON.parse(script.textContent);
+      debug.data.extracted("json-ld script", data);
 
       // Function to find product data regardless of nesting
       const findProduct = (obj) => {
         if (!obj) return null;
 
         if (obj["@type"] === "Product") {
+          debug.success("Found product object in JSON-LD");
           return obj;
         }
 
@@ -642,6 +974,8 @@ function extractFromStructuredData() {
       const product = findProduct(data);
 
       if (product) {
+        debug.data.extracted("structured data product", product);
+
         result.title = product.name || null;
         result.description = product.description || null;
         result.sku = product.sku || product.mpn || null;
@@ -657,6 +991,8 @@ function extractFromStructuredData() {
 
         // Handle image URLs
         if (product.image) {
+          debug.info("Processing image data", product.image);
+
           if (typeof product.image === "string") {
             result.imageUrl = makeImageUrlAbsolute(product.image);
           } else if (Array.isArray(product.image) && product.image.length > 0) {
@@ -665,14 +1001,18 @@ function extractFromStructuredData() {
           } else if (product.image.url) {
             result.imageUrl = makeImageUrlAbsolute(product.image.url);
           }
+
+          debug.info(`Resolved image URL: ${result.imageUrl}`);
         }
 
         // Handle offers/pricing
         if (product.offers) {
           let offer = product.offers;
+          debug.info("Processing offers data", offer);
 
           if (Array.isArray(offer)) {
             offer = offer[0]; // Take the first offer
+            debug.info("Multiple offers found, using first one", offer);
           }
 
           if (offer) {
@@ -684,20 +1024,29 @@ function extractFromStructuredData() {
             // Check for original price
             if (offer.highPrice && offer.highPrice > offer.price) {
               result.originalPrice = offer.highPrice;
+              debug.info(`Original price found: ${result.originalPrice}`);
             }
           }
         }
 
         if (result.title && result.price) {
           result.success = true;
+          debug.success(
+            "Successfully extracted product data from structured data",
+            result
+          );
+          debug.timing.end("Structured Data Extraction", structuredDataTimer);
           return result;
         }
       }
     } catch (e) {
+      debug.error("Error parsing JSON-LD script", e);
       // JSON parsing error, continue to next script
     }
   }
 
+  debug.info("Could not extract complete product data from structured data");
+  debug.timing.end("Structured Data Extraction", structuredDataTimer);
   return result;
 }
 
@@ -705,6 +1054,10 @@ function extractFromStructuredData() {
  * Extract product info from meta tags
  */
 function extractFromMetaTags() {
+  const metaTagsTimer = debug.timing.start("Meta Tags Extraction");
+
+  debug.info("Attempting extraction from meta tags");
+
   const result = {
     title: null,
     price: null,
@@ -722,18 +1075,32 @@ function extractFromMetaTags() {
   const titleMeta = document.querySelector(
     'meta[property="og:title"], meta[name="twitter:title"]'
   );
+  debug.selector.check(
+    'meta[property="og:title"], meta[name="twitter:title"]',
+    titleMeta,
+    "Title"
+  );
+
   if (titleMeta) {
     result.title = titleMeta.getAttribute("content");
+    debug.info(`Found title in meta tags: ${result.title}`);
   }
 
   // Product price
   const priceMeta = document.querySelector(
     'meta[property="product:price:amount"], meta[property="og:price:amount"]'
   );
+  debug.selector.check(
+    'meta[property="product:price:amount"], meta[property="og:price:amount"]',
+    priceMeta,
+    "Price"
+  );
+
   if (priceMeta) {
     const price = priceMeta.getAttribute("content");
     if (price && !isNaN(parseFloat(price))) {
       result.price = price;
+      debug.info(`Found price in meta tags: ${result.price}`);
     }
   }
 
@@ -741,49 +1108,88 @@ function extractFromMetaTags() {
   const currencyMeta = document.querySelector(
     'meta[property="product:price:currency"], meta[property="og:price:currency"]'
   );
+  debug.selector.check(
+    'meta[property="product:price:currency"], meta[property="og:price:currency"]',
+    currencyMeta,
+    "Currency"
+  );
+
   if (currencyMeta) {
     result.currency = currencyMeta.getAttribute("content");
+    debug.info(`Found currency in meta tags: ${result.currency}`);
   }
 
   // Product image
   const imageMeta = document.querySelector(
     'meta[property="og:image"], meta[name="twitter:image"]'
   );
+  debug.selector.check(
+    'meta[property="og:image"], meta[name="twitter:image"]',
+    imageMeta,
+    "Image"
+  );
+
   if (imageMeta) {
     result.imageUrl = makeImageUrlAbsolute(imageMeta.getAttribute("content"));
+    debug.info(`Found image in meta tags: ${result.imageUrl}`);
   }
 
   // Product description
   const descMeta = document.querySelector(
     'meta[property="og:description"], meta[name="twitter:description"], meta[name="description"]'
   );
+  debug.selector.check(
+    'meta[property="og:description"], meta[name="twitter:description"], meta[name="description"]',
+    descMeta,
+    "Description"
+  );
+
   if (descMeta) {
     result.description = descMeta.getAttribute("content");
+    debug.info(`Found description in meta tags: ${result.description}`);
   }
 
   // Brand
   const brandMeta = document.querySelector(
     'meta[property="product:brand"], meta[property="og:brand"]'
   );
+  debug.selector.check(
+    'meta[property="product:brand"], meta[property="og:brand"]',
+    brandMeta,
+    "Brand"
+  );
+
   if (brandMeta) {
     result.brand = brandMeta.getAttribute("content");
+    debug.info(`Found brand in meta tags: ${result.brand}`);
   }
 
   // Availability
   const availabilityMeta = document.querySelector(
     'meta[property="product:availability"]'
   );
+  debug.selector.check(
+    'meta[property="product:availability"]',
+    availabilityMeta,
+    "Availability"
+  );
+
   if (availabilityMeta) {
     result.availability = formatAvailability(
       availabilityMeta.getAttribute("content")
     );
+    debug.info(`Found availability in meta tags: ${result.availability}`);
   }
 
   // Check if we have the minimum required info
   if (result.title && result.price) {
     result.success = true;
+    debug.success("Successfully extracted product data from meta tags", result);
+  } else {
+    debug.info("Insufficient product data from meta tags", result);
   }
 
+  debug.timing.end("Meta Tags Extraction", metaTagsTimer);
   return result;
 }
 
@@ -791,6 +1197,12 @@ function extractFromMetaTags() {
  * Extract product info using common DOM selectors
  */
 function extractFromCommonSelectors() {
+  const commonSelectorsTimer = debug.timing.start(
+    "Common Selectors Extraction"
+  );
+
+  debug.info("Attempting extraction from common DOM selectors");
+
   const result = {
     title: null,
     price: null,
@@ -922,8 +1334,11 @@ function extractFromCommonSelectors() {
   // Try to find title
   for (const selector of titleSelectors) {
     const element = document.querySelector(selector);
+    debug.selector.check(selector, element, "Title");
+
     if (element && element.textContent.trim()) {
       result.title = element.textContent.trim();
+      debug.info(`Found title using selector ${selector}: ${result.title}`);
       break;
     }
   }
@@ -931,14 +1346,21 @@ function extractFromCommonSelectors() {
   // Try to find price
   for (const selector of priceSelectors) {
     const elements = document.querySelectorAll(selector);
+    debug.info(
+      `Found ${elements.length} potential price elements with selector: ${selector}`
+    );
+
     for (const element of elements) {
       if (element && element.textContent.trim()) {
         const text = element.textContent.trim();
+        debug.info(`Checking price text: "${text}"`);
+
         const match = text.match(/([0-9]+[.,][0-9]+)/);
         if (match) {
           // Extract the price and try to determine currency
           let price = match[1].replace(/\./g, "").replace(",", ".");
           result.price = price;
+          debug.info(`Extracted price value: ${result.price}`);
 
           // Try to determine currency
           if (text.includes("TL") || text.includes("₺")) {
@@ -951,6 +1373,7 @@ function extractFromCommonSelectors() {
             result.currency = "GBP";
           }
 
+          debug.info(`Detected currency: ${result.currency}`);
           break;
         }
       }
@@ -961,13 +1384,20 @@ function extractFromCommonSelectors() {
   // Try to find original price (for discounted items)
   for (const selector of oldPriceSelectors) {
     const elements = document.querySelectorAll(selector);
+    debug.info(
+      `Found ${elements.length} potential original price elements with selector: ${selector}`
+    );
+
     for (const element of elements) {
       if (element && element.textContent.trim()) {
         const text = element.textContent.trim();
+        debug.info(`Checking original price text: "${text}"`);
+
         const match = text.match(/([0-9]+[.,][0-9]+)/);
         if (match) {
           // Extract the original price
           result.originalPrice = match[1].replace(/\./g, "").replace(",", ".");
+          debug.info(`Extracted original price: ${result.originalPrice}`);
           break;
         }
       }
@@ -978,12 +1408,15 @@ function extractFromCommonSelectors() {
   // Try to find image
   for (const selector of imageSelectors) {
     const element = document.querySelector(selector);
+    debug.selector.check(selector, element, "Image");
+
     if (
       element &&
       (element.getAttribute("src") || element.getAttribute("data-src"))
     ) {
       let src = element.getAttribute("src") || element.getAttribute("data-src");
       result.imageUrl = makeImageUrlAbsolute(src);
+      debug.info(`Found image using selector ${selector}: ${result.imageUrl}`);
       break;
     }
   }
@@ -991,8 +1424,11 @@ function extractFromCommonSelectors() {
   // Try to find description
   for (const selector of descriptionSelectors) {
     const element = document.querySelector(selector);
+    debug.selector.check(selector, element, "Description");
+
     if (element && element.textContent.trim()) {
       result.description = element.textContent.trim();
+      debug.info(`Found description using selector ${selector}`);
       break;
     }
   }
@@ -1000,8 +1436,11 @@ function extractFromCommonSelectors() {
   // Try to find SKU
   for (const selector of skuSelectors) {
     const element = document.querySelector(selector);
+    debug.selector.check(selector, element, "SKU");
+
     if (element && element.textContent.trim()) {
       result.sku = element.textContent.trim();
+      debug.info(`Found SKU using selector ${selector}: ${result.sku}`);
       break;
     }
   }
@@ -1009,24 +1448,30 @@ function extractFromCommonSelectors() {
   // Try to find availability
   for (const selector of availabilitySelectors) {
     const element = document.querySelector(selector);
+    debug.selector.check(selector, element, "Availability");
+
     if (element) {
       // Check both text content and attribute
       const availText = element.textContent.trim();
       if (availText) {
         result.availability = availText;
+        debug.info(`Found availability text: ${availText}`);
       } else {
         // Check for schema.org value in the content attribute
         const availAttr = element.getAttribute("content");
         if (availAttr) {
           result.availability = formatAvailability(availAttr);
+          debug.info(`Found availability attribute: ${availAttr}`);
         }
       }
 
       // Also look at class names for availability hints
       if (element.classList.contains("in-stock")) {
         result.availability = "In Stock";
+        debug.info("Found 'in-stock' class indicator");
       } else if (element.classList.contains("out-of-stock")) {
         result.availability = "Out of Stock";
+        debug.info("Found 'out-of-stock' class indicator");
       }
 
       break;
@@ -1036,8 +1481,11 @@ function extractFromCommonSelectors() {
   // Try to find brand
   for (const selector of brandSelectors) {
     const element = document.querySelector(selector);
+    debug.selector.check(selector, element, "Brand");
+
     if (element && element.textContent.trim()) {
       result.brand = element.textContent.trim();
+      debug.info(`Found brand using selector ${selector}: ${result.brand}`);
       break;
     }
   }
@@ -1045,8 +1493,18 @@ function extractFromCommonSelectors() {
   // Check if we have the minimum required info
   if (result.title && result.price) {
     result.success = true;
+    debug.success(
+      "Successfully extracted product data from common selectors",
+      result
+    );
+  } else {
+    debug.info("Insufficient product data from common selectors", {
+      foundTitle: !!result.title,
+      foundPrice: !!result.price,
+    });
   }
 
+  debug.timing.end("Common Selectors Extraction", commonSelectorsTimer);
   return result;
 }
 
@@ -1054,6 +1512,10 @@ function extractFromCommonSelectors() {
  * Last resort method: scan the document content for likely product info
  */
 function scanContentForProductInfo() {
+  const contentScanTimer = debug.timing.start("Content Scanning");
+
+  debug.info("Starting content scanning (last resort method)");
+
   const result = {
     title: null,
     price: null,
@@ -1066,17 +1528,24 @@ function scanContentForProductInfo() {
 
   // Get probable title (usually the first h1 on a product page)
   const h1 = document.querySelector("h1");
+  debug.selector.check("h1", h1, "Content Scan - Title");
+
   if (h1 && h1.textContent.trim()) {
     result.title = h1.textContent.trim();
+    debug.info(`Found title from h1: ${result.title}`);
   } else {
     // Fallback to title tag
     const titleTag = document.querySelector("title");
+    debug.selector.check("title", titleTag, "Content Scan - Title Fallback");
+
     if (titleTag && titleTag.textContent.trim()) {
       result.title = titleTag.textContent.trim();
+      debug.info(`Found title from title tag: ${result.title}`);
     }
   }
 
   // Scan for price patterns in text nodes
+  debug.info("Scanning text nodes for price patterns");
   const priceRegex = /([0-9]+[.,][0-9]+)\s*(?:TL|₺|\$|€|£)/gi;
   const textNodes = [];
 
@@ -1099,6 +1568,7 @@ function scanContentForProductInfo() {
   }
 
   collectTextNodes(document.body);
+  debug.info(`Found ${textNodes.length} text nodes to scan`);
 
   // Find all prices and select the most likely one
   const priceMatches = [];
@@ -1123,6 +1593,11 @@ function scanContentForProductInfo() {
     }
   }
 
+  debug.info(
+    `Found ${priceMatches.length} possible price matches`,
+    priceMatches
+  );
+
   // Try to find images that might be product images
   const largeImages = Array.from(document.querySelectorAll("img"))
     .filter((img) => {
@@ -1133,19 +1608,27 @@ function scanContentForProductInfo() {
     .filter((src) => src)
     .map((src) => makeImageUrlAbsolute(src));
 
+  debug.info(
+    `Found ${largeImages.length} possible product images`,
+    largeImages
+  );
+
   if (largeImages.length > 0) {
     result.imageUrl = largeImages[0];
+    debug.info(`Selected primary image: ${result.imageUrl}`);
   }
 
   // Select most likely price (closest to product title or largest on page)
   if (priceMatches.length > 0) {
     // Default to first match
     let bestMatch = priceMatches[0];
+    debug.info("Finding best price match from candidates");
 
     if (result.title) {
       // Try to find price closest to title
       const titleElement = document.querySelector("h1");
       if (titleElement) {
+        debug.info("Looking for price closest to title element");
         const titleRect = titleElement.getBoundingClientRect();
         let closestDistance = Infinity;
 
@@ -1157,11 +1640,17 @@ function scanContentForProductInfo() {
                 Math.pow(rect.left - titleRect.left, 2)
             );
 
+            debug.info(
+              `Price match distance: ${distance.toFixed(2)}px from title`,
+              { price: match.price, text: match.text }
+            );
+
             if (distance < closestDistance) {
               closestDistance = distance;
               bestMatch = match;
             }
           } catch (e) {
+            debug.error("Error calculating distance to price element", e);
             // If getBoundingClientRect fails, continue
           }
         }
@@ -1170,9 +1659,14 @@ function scanContentForProductInfo() {
 
     result.price = bestMatch.price.replace(/\./g, "").replace(",", ".");
     result.currency = bestMatch.currency;
+    debug.info(
+      `Selected best price match: ${result.price} ${result.currency}`,
+      bestMatch
+    );
 
     // Try to find original price near the current price
     if (bestMatch.element) {
+      debug.info("Looking for original price near current price");
       const nearbyText = bestMatch.element.innerText || "";
       const oldPriceMatch = nearbyText.match(/([0-9]+[.,][0-9]+)/g);
       if (oldPriceMatch && oldPriceMatch.length > 1) {
@@ -1181,6 +1675,7 @@ function scanContentForProductInfo() {
           const cleanPrice = price.replace(/\./g, "").replace(",", ".");
           if (cleanPrice !== result.price) {
             result.originalPrice = cleanPrice;
+            debug.info(`Found nearby original price: ${result.originalPrice}`);
             break;
           }
         }
@@ -1191,7 +1686,453 @@ function scanContentForProductInfo() {
   // Check if we have the minimum required info
   if (result.title && result.price) {
     result.success = true;
+    debug.success(
+      "Successfully extracted product data from content scanning",
+      result
+    );
+  } else {
+    debug.info("Insufficient product data from content scanning", {
+      foundTitle: !!result.title,
+      foundPrice: !!result.price,
+    });
   }
 
+  debug.timing.end("Content Scanning", contentScanTimer);
   return result;
+}
+
+/**
+ * Better handling of availability status
+ */
+function formatAvailability(availability) {
+  if (!availability) return null;
+
+  debug.info(`Formatting availability: ${availability}`);
+
+  // Check for schema.org formats
+  if (
+    availability === "http://schema.org/InStock" ||
+    availability === "https://schema.org/InStock"
+  ) {
+    return "In Stock";
+  } else if (
+    availability === "http://schema.org/OutOfStock" ||
+    availability === "https://schema.org/OutOfStock"
+  ) {
+    return "Out of Stock";
+  } else if (
+    availability === "http://schema.org/LimitedAvailability" ||
+    availability === "https://schema.org/LimitedAvailability"
+  ) {
+    return "Limited Availability";
+  } else if (
+    availability === "http://schema.org/PreOrder" ||
+    availability === "https://schema.org/PreOrder"
+  ) {
+    return "Pre-Order";
+  }
+
+  return availability;
+}
+
+/**
+ * Ensures image URLs are absolute
+ */
+function makeImageUrlAbsolute(imgSrc) {
+  if (!imgSrc) return null;
+
+  debug.info(`Making image URL absolute: ${imgSrc}`);
+
+  // Already absolute URL
+  if (imgSrc.startsWith("http") || imgSrc.startsWith("https")) {
+    return imgSrc;
+  }
+
+  // Convert relative URLs to absolute
+  if (imgSrc.startsWith("/")) {
+    const absoluteUrl = window.location.origin + imgSrc;
+    debug.info(`Converted to absolute URL: ${absoluteUrl}`);
+    return absoluteUrl;
+  } else {
+    // Handle relative paths without leading slash
+    const baseUrl = window.location.href.substring(
+      0,
+      window.location.href.lastIndexOf("/") + 1
+    );
+    const absoluteUrl = baseUrl + imgSrc;
+    debug.info(`Converted to absolute URL: ${absoluteUrl}`);
+    return absoluteUrl;
+  }
+}
+
+/**
+ * Improved variant extraction to avoid extracting country codes
+ */
+function extractVariantInfo() {
+  const variantTimer = debug.timing.start("Variant Extraction");
+
+  debug.info("Extracting product variants");
+
+  let variants = {
+    colors: [],
+    sizes: [],
+    otherOptions: [],
+  };
+
+  // Helper function to extract option text and selected state
+  function extractOptionInfo(element) {
+    if (!element) return null;
+
+    const text = element.textContent.trim();
+    debug.info(`Examining variant option: "${text}"`);
+
+    // Skip options that look like country codes with phone numbers
+    if (text.match(/^\+\d+ [A-Za-z]/)) {
+      debug.info(`Skipping option that looks like a country code: "${text}"`);
+      return null;
+    }
+
+    // Skip generic placeholder text and customer information options
+    const skipPatterns = [
+      "select size",
+      "select option",
+      "availability",
+      "mr.",
+      "ms.",
+      "mrs.",
+      "miss",
+      "dr.",
+      "prof.",
+      "i'd rather not say",
+      "quality & characteristics",
+      "select",
+    ];
+
+    const lowerText = text.toLowerCase();
+    if (skipPatterns.some((pattern) => lowerText.includes(pattern))) {
+      debug.info(`Skipping option with generic text: "${text}"`);
+      return null;
+    }
+
+    let selected = false;
+
+    // Check various indicators of selection
+    if (
+      element.hasAttribute("selected") ||
+      element.hasAttribute("checked") ||
+      element.classList.contains("selected") ||
+      element.classList.contains("active") ||
+      element.getAttribute("aria-selected") === "true"
+    ) {
+      selected = true;
+      debug.info(`Option "${text}" is selected`);
+    }
+
+    // For color options, try to get the color value
+    let colorValue = null;
+    const bgColor = window.getComputedStyle(element).backgroundColor;
+    if (
+      bgColor &&
+      bgColor !== "transparent" &&
+      bgColor !== "rgba(0, 0, 0, 0)"
+    ) {
+      colorValue = bgColor;
+      debug.info(`Found color value from background-color: ${colorValue}`);
+    }
+
+    // Try to get data-color attribute
+    const dataColor =
+      element.getAttribute("data-color") ||
+      element.getAttribute("data-value") ||
+      element.getAttribute("data-option-value");
+    if (dataColor) {
+      colorValue = dataColor;
+      debug.info(`Found color value from data attribute: ${colorValue}`);
+    }
+
+    // Check for style attribute with background-color
+    const style = element.getAttribute("style");
+    if (style && style.includes("background-color")) {
+      const match = style.match(/background-color:\s*([^;]+)/i);
+      if (match) {
+        colorValue = match[1];
+        debug.info(`Found color value from style attribute: ${colorValue}`);
+      }
+    }
+
+    // Check for an img child that might represent the color
+    const colorImg = element.querySelector("img");
+    if (colorImg) {
+      const imgSrc = colorImg.getAttribute("src");
+      if (imgSrc) {
+        // Convert relative URLs to absolute
+        let absoluteImgSrc = imgSrc;
+        if (imgSrc.startsWith("/")) {
+          absoluteImgSrc = window.location.origin + imgSrc;
+        } else if (!imgSrc.startsWith("http")) {
+          const baseUrl = window.location.href.substring(
+            0,
+            window.location.href.lastIndexOf("/") + 1
+          );
+          absoluteImgSrc = baseUrl + imgSrc;
+        }
+        colorValue = absoluteImgSrc;
+        debug.info(`Found color value from image: ${colorValue}`);
+      }
+    }
+
+    const result = {
+      text: text,
+      selected: selected,
+      value: colorValue,
+    };
+
+    debug.data.extracted("variant option", result);
+    return result;
+  }
+
+  // 1. Try to find color options
+  const colorSelectors = [
+    ".color-option",
+    ".color-selector",
+    ".color-swatch",
+    ".color-select",
+    ".color-radio",
+    ".color-box",
+    '[data-option-type="color"]',
+    '[data-attribute="color"]',
+    ".js-color-variant",
+    ".color-tiles",
+    ".color-squares",
+    // Turkish-specific selectors
+    ".renk-secimi",
+    ".renk-secenekleri",
+    ".renk-kutusu",
+  ];
+
+  debug.info("Searching for color variants");
+  for (const selector of colorSelectors) {
+    const elements = document.querySelectorAll(selector);
+    debug.selector.check(
+      selector,
+      elements.length > 0 ? elements[0] : null,
+      "Color Variant"
+    );
+
+    if (elements && elements.length > 0) {
+      debug.info(
+        `Found ${elements.length} color options with selector: ${selector}`
+      );
+
+      for (const element of elements) {
+        const info = extractOptionInfo(element);
+        if (info) variants.colors.push(info);
+      }
+      break;
+    }
+  }
+
+  // 2. Try to find size options
+  const sizeSelectors = [
+    ".size-option",
+    ".size-selector",
+    ".size-swatch",
+    ".size-select",
+    ".size-radio",
+    ".size-box",
+    '[data-option-type="size"]',
+    '[data-attribute="size"]',
+    ".js-size-variant",
+    ".size-tiles",
+    ".size-squares",
+    // Turkish-specific selectors
+    ".beden-secimi",
+    ".beden-secenekleri",
+    ".olcu-kutusu",
+  ];
+
+  debug.info("Searching for size variants");
+  for (const selector of sizeSelectors) {
+    const elements = document.querySelectorAll(selector);
+    debug.selector.check(
+      selector,
+      elements.length > 0 ? elements[0] : null,
+      "Size Variant"
+    );
+
+    if (elements && elements.length > 0) {
+      debug.info(
+        `Found ${elements.length} size options with selector: ${selector}`
+      );
+
+      for (const element of elements) {
+        const info = extractOptionInfo(element);
+        if (info) variants.sizes.push(info);
+      }
+      break;
+    }
+  }
+
+  // 3. Look for select elements that might contain variants
+  debug.info("Searching for variants in select elements");
+  const selectElements = document.querySelectorAll("select");
+  debug.info(`Found ${selectElements.length} select elements to examine`);
+
+  for (const select of selectElements) {
+    // Try to determine what type of variant this is
+    const labelElement = document.querySelector(`label[for="${select.id}"]`);
+    const labelText = labelElement
+      ? labelElement.textContent.toLowerCase().trim()
+      : "";
+    const selectName = select.getAttribute("name")
+      ? select.getAttribute("name").toLowerCase()
+      : "";
+
+    debug.info(
+      `Examining select element: ${selectName || select.id || "unnamed"}`,
+      { label: labelText, name: selectName }
+    );
+
+    // Skip form fields that might be for customer information
+    if (
+      labelText.includes("country") ||
+      labelText.includes("phone") ||
+      labelText.includes("address") ||
+      labelText.includes("title") ||
+      labelText.includes("salutation") ||
+      labelText.includes("gender") ||
+      labelText.includes("options") ||
+      labelText.includes("quality") ||
+      labelText.includes("characteristics") ||
+      selectName.includes("country") ||
+      selectName.includes("phone") ||
+      selectName.includes("address") ||
+      selectName.includes("title") ||
+      selectName.includes("salutation") ||
+      selectName.includes("gender") ||
+      selectName.includes("options") ||
+      selectName.includes("quality") ||
+      selectName.includes("characteristics")
+    ) {
+      debug.info(
+        `Skipping select that appears to be for customer information: ${
+          labelText || selectName
+        }`
+      );
+      continue;
+    }
+
+    // Decide which variant category this belongs to
+    let variantType = "otherOptions";
+    if (
+      labelText.includes("color") ||
+      labelText.includes("colour") ||
+      labelText.includes("renk") ||
+      selectName.includes("color") ||
+      selectName.includes("colour") ||
+      selectName.includes("renk")
+    ) {
+      variantType = "colors";
+      debug.info(`Identified as color select`);
+    } else if (
+      labelText.includes("size") ||
+      labelText.includes("beden") ||
+      selectName.includes("size") ||
+      selectName.includes("beden")
+    ) {
+      variantType = "sizes";
+      debug.info(`Identified as size select`);
+    } else {
+      debug.info(`Identified as other option type`);
+    }
+
+    // Extract options from this select
+    const options = select.querySelectorAll("option");
+    debug.info(`Found ${options.length} options in this select`);
+
+    for (const option of options) {
+      if (!option.value || option.value === "") {
+        debug.info(`Skipping empty option value`);
+        continue;
+      }
+
+      const info = extractOptionInfo(option);
+      if (info) variants[variantType].push(info);
+    }
+  }
+
+  // 4. Find other common variant selectors (radio buttons, etc.)
+  const otherVariantSelectors = [
+    ".js-option-selector",
+    ".variant-option",
+    ".variant-select",
+    ".product-form__option",
+    ".option-value",
+    ".option-selector",
+    // Turkish-specific selectors
+    ".urun-secenek",
+    ".varyasyon-secimi",
+  ];
+
+  debug.info("Searching for other variant types");
+  for (const selector of otherVariantSelectors) {
+    const elements = document.querySelectorAll(selector);
+    debug.selector.check(
+      selector,
+      elements.length > 0 ? elements[0] : null,
+      "Other Variant"
+    );
+
+    if (elements && elements.length > 0) {
+      debug.info(
+        `Found ${elements.length} other options with selector: ${selector}`
+      );
+
+      for (const element of elements) {
+        const info = extractOptionInfo(element);
+        if (info) variants.otherOptions.push(info);
+      }
+    }
+  }
+
+  // Log summary of found variants
+  debug.info("Variant extraction complete", {
+    colors: variants.colors.length,
+    sizes: variants.sizes.length,
+    otherOptions: variants.otherOptions.length,
+  });
+
+  debug.timing.end("Variant Extraction", variantTimer);
+  function deduplicateVariants(variantArray) {
+    const uniqueMap = new Map();
+
+    // Prioritize selected variants
+    variantArray.forEach((variant) => {
+      const existingVariant = uniqueMap.get(variant.text);
+      // If this variant is selected or there's no existing variant with this text, use it
+      if (variant.selected || !existingVariant) {
+        uniqueMap.set(variant.text, variant);
+      }
+    });
+
+    return Array.from(uniqueMap.values());
+  }
+
+  // Apply deduplication to all variant types
+  if (variants.colors.length > 0) {
+    variants.colors = deduplicateVariants(variants.colors);
+  }
+  if (variants.sizes.length > 0) {
+    variants.sizes = deduplicateVariants(variants.sizes);
+  }
+  if (variants.otherOptions.length > 0) {
+    variants.otherOptions = deduplicateVariants(variants.otherOptions);
+  }
+
+  debug.info("After deduplication, variant counts:", {
+    colors: variants.colors.length,
+    sizes: variants.sizes.length,
+    otherOptions: variants.otherOptions.length,
+  });
+  return variants;
 }
