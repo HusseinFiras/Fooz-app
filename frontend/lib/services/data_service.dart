@@ -6,10 +6,10 @@ class DataService {
   final List<Map<String, String>> retailSites = [
     {'name': 'Gucci', 'url': 'https://www.gucci.com/tr/en_gb/'},
     {'name': 'Zara', 'url': 'https://www.zara.com/tr/en/'},
-    {'name': 'Stradivarius', 'url': 'https://www.stradivarius.com/tr/'},
+    {'name': 'Stradivarius', 'url': 'https://www.stradivarius.com/tr/en/'},
     {'name': 'Cartier', 'url': 'https://www.cartier.com/en-tr/home'},
     {'name': 'Swarovski', 'url': 'https://www.swarovski.com/en-TR/'},
-    {'name': 'Guess', 'url': 'https://www.guess.eu/tr-tr/'},
+    {'name': 'Guess', 'url': 'https://www.guess.eu/en-tr/home'},
     {'name': 'Mango', 'url': 'https://shop.mango.com/tr/tr/h/kadin'},
     {'name': 'Bershka', 'url': 'https://www.bershka.com/tr/en/'},
     {'name': 'Massimo Dutti', 'url': 'https://www.massimodutti.com/tr/'},

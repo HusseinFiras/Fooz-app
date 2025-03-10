@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 import 'screens/cart_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/favorites_screen.dart'; // We'll need to create this
 
 class MainApp extends StatefulWidget {
   const MainApp({Key? key}) : super(key: key);
@@ -18,6 +19,7 @@ class _MainAppState extends State<MainApp> {
   final List<Widget> _screens = const [
     HomePage(),
     CartScreen(),
+    FavoritesScreen(), // Add Favorites screen
     SettingsScreen(),
   ];
 
@@ -44,6 +46,11 @@ class _MainAppState extends State<MainApp> {
             icon: Icon(Icons.shopping_cart_outlined),
             selectedIcon: Icon(Icons.shopping_cart),
             label: 'Cart',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.favorite_outline),
+            selectedIcon: Icon(Icons.favorite),
+            label: 'Favorites',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/product_info.dart';
 import '../models/variant_option.dart';
 import '../services/cart_service.dart';
+import '../services/favorites_service.dart';
 
 class ProductDetailsBottomSheet extends StatefulWidget {
   final ProductInfo productInfo;
@@ -18,24 +19,28 @@ class ProductDetailsBottomSheet extends StatefulWidget {
 
 class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
   final CartService _cartService = CartService();
+  final FavoritesService _favoritesService = FavoritesService();
   bool _isInCart = false;
+  bool _isInFavorites = false;
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _checkCartStatus();
+    _checkProductStatus();
   }
 
-  Future<void> _checkCartStatus() async {
+  Future<void> _checkProductStatus() async {
     setState(() {
       _isLoading = true;
     });
     
     final inCart = await _cartService.isInCart(widget.productInfo);
+    final inFavorites = await _favoritesService.isInFavorites(widget.productInfo);
     
     setState(() {
       _isInCart = inCart;
+      _isInFavorites = inFavorites;
       _isLoading = false;
     });
   }
@@ -97,6 +102,41 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         ),
       );
     }
+  }
+  
+  Future<void> _toggleFavorite() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    bool success;
+    if (_isInFavorites) {
+      success = await _favoritesService.removeFromFavorites(widget.productInfo);
+      if (success) {
+        _isInFavorites = false;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Removed from favorites'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } else {
+      success = await _favoritesService.addToFavorites(widget.productInfo);
+      if (success) {
+        _isInFavorites = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Added to favorites'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+    
+    setState(() {
+      _isLoading = false;
+    });
   }
 
   Widget _buildInfoRow(String label, String value, {TextStyle? style}) {
@@ -418,15 +458,12 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  icon: const Icon(Icons.favorite_border),
-                  label: const Text('Save'),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text('Product saved to favorites')),
-                    );
-                    Navigator.pop(context);
-                  },
+                  icon: Icon(
+                    _isInFavorites ? Icons.favorite : Icons.favorite_border,
+                    color: _isInFavorites ? Colors.red : null,
+                  ),
+                  label: Text(_isInFavorites ? 'Saved' : 'Favorite'),
+                  onPressed: _isLoading ? null : _toggleFavorite,
                 ),
               ),
               const SizedBox(width: 8),
