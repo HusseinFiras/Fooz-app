@@ -1934,6 +1934,10 @@ function extractVariantInfo() {
 
   // 2. Try to find size options
   const sizeSelectors = [
+    ".sizes-list .size-item",
+    ".size-name[data-text]",
+    "[data-testid='size-item']",
+    "[data-testid='sizes-list']",
     ".size-option",
     ".size-selector",
     ".size-swatch",
@@ -2191,6 +2195,8 @@ function extractVariantInfo() {
 
     // 1. Look for specialized size containers common in luxury sites
     const luxurySizeSelectors = [
+      ".sizes-list", // Add this for Stradivarius
+      ".sizes-list .size-item", // Add this for Stradivarius
       // Gucci specific selectors
       ".product__options-container",
       ".product__size-selector",
@@ -2220,6 +2226,26 @@ function extractVariantInfo() {
 
       if (container) {
         // Look for size elements within the container - find any clickable elements
+        if (container.classList.contains("sizes-list")) {
+          const sizeItems = container.querySelectorAll(".size-item");
+          for (const item of sizeItems) {
+            const sizeElement = item.querySelector(".size-name");
+            if (sizeElement) {
+              const sizeText =
+                sizeElement.getAttribute("data-text") ||
+                sizeElement.textContent.trim();
+              const isSelected = item.classList.contains("selected");
+              const isAvailable = !item.classList.contains("disabled");
+
+              variants.sizes.push({
+                text: sizeText,
+                selected: isSelected,
+                value: sizeText,
+                available: isAvailable,
+              });
+            }
+          }
+        }
         const sizeElements = container.querySelectorAll(
           'button, li, span[role="button"], div[role="option"], div[data-test-id*="size"], div[data-size]'
         );
@@ -2579,7 +2605,7 @@ function extractVariantInfo() {
       }
     }
   }
-  
+
   debug.info("Variant extraction complete", {
     colors: variants.colors.length,
     sizes: variants.sizes.length,
