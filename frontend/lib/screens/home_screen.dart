@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/data_service.dart';
+import '../services/url_handler_service.dart';
 import 'webview_screen.dart';
 
 class HomePage extends StatefulWidget {
@@ -13,6 +14,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final DataService _dataService = DataService();
+  final UrlHandlerService _urlHandler = UrlHandlerService();
   final TextEditingController _linkController = TextEditingController();
   final FocusNode _linkFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
@@ -20,6 +22,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // For retailer card animations
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
+
+  // URL validation states
+  bool _isProcessingUrl = false;
+  bool _isValidUrl = false;
+  bool _isInvalidUrl = false;
+  String _retailerName = "";
 
   // Retailer background images
   final Map<String, String> _brandBackgrounds = {
@@ -50,10 +58,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     // Start the animations
     _fadeController.forward();
+    
+    // Listen for changes in the text field to validate URL as the user types
+    _linkController.addListener(_validateUrlInput);
   }
 
   @override
   void dispose() {
+    _linkController.removeListener(_validateUrlInput);
     _linkController.dispose();
     _linkFocusNode.dispose();
     _fadeController.dispose();
@@ -74,41 +86,98 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  void _searchLink() {
-    final link = _linkController.text.trim();
-    if (link.isNotEmpty) {
-      // Clear focus and collapse keyboard
-      _linkFocusNode.unfocus();
-      
-      // Show a simple loading indicator
+  // Validates the URL as the user types
+  void _validateUrlInput() {
+    final text = _linkController.text.trim();
+    
+    // If text is empty, reset to neutral state
+    if (text.isEmpty) {
+      setState(() {
+        _isValidUrl = false;
+        _isInvalidUrl = false;
+        _retailerName = "";
+      });
+      return;
+    }
+    
+    // Skip validation if already processing
+    if (_isProcessingUrl) {
+      return;
+    }
+    
+    // Process the URL without navigating
+    final result = _urlHandler.processUrl(text);
+    
+    setState(() {
+      _isValidUrl = result['isValid'];
+      _isInvalidUrl = !result['isValid'] && text.isNotEmpty;
+      _retailerName = result['retailerName'] ?? "";
+    });
+  }
+
+  // Process and navigate to the URL entered by the user
+  void _processUrl() async {
+    if (_isProcessingUrl) return; // Prevent multiple taps while processing
+    
+    setState(() {
+      _isProcessingUrl = true;
+    });
+    
+    final url = _linkController.text.trim();
+    
+    // Clear focus and collapse keyboard
+    _linkFocusNode.unfocus();
+    
+    // Process the URL
+    final result = _urlHandler.processUrl(url);
+    
+    if (!result['isValid']) {
+      // Show error message
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Loading product...'),
-          duration: Duration(seconds: 1),
+        SnackBar(
+          content: Text(result['errorMessage']),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
         ),
       );
-      
-      // Here you could add logic to determine which store the link belongs to
-      // For now, we'll just demonstrate the concept
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        // Navigate to WebView with the provided URL
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => WebViewScreen(
-              initialSiteIndex: 0, 
-              initialUrl: link.startsWith('http') ? link : 'https://$link',
-            ),
-          ),
-        );
+      setState(() {
+        _isProcessingUrl = false;
+        _isInvalidUrl = true;
+        _isValidUrl = false;
       });
+      return;
     }
+    
+    // Show a success message with the retailer name
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Opening ${result['retailerName']}...'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 1),
+      ),
+    );
+    
+    // Navigate to WebView with the processed URL
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WebViewScreen(
+          initialSiteIndex: result['retailerIndex'],
+          initialUrl: result['normalizedUrl'],
+        ),
+      ),
+    ).then((_) {
+      // Reset processing state when returning from WebView
+      setState(() {
+        _isProcessingUrl = false;
+        _validateUrlInput(); // Re-validate after returning
+      });
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Remove the appBar completely
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnimation,
@@ -125,7 +194,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
+                    color: _isValidUrl 
+                        ? Colors.green.withOpacity(0.1) 
+                        : _isInvalidUrl 
+                            ? Colors.red.withOpacity(0.1) 
+                            : Colors.grey[100],
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
@@ -134,24 +207,79 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         spreadRadius: 0,
                       ),
                     ],
-                  ),
-                  child: TextField(
-                    controller: _linkController,
-                    focusNode: _linkFocusNode,
-                    decoration: InputDecoration(
-                      hintText: 'Paste product URL',
-                      border: InputBorder.none,
-                      prefixIcon: const Icon(Icons.link),
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.search),
-                        onPressed: _searchLink,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 16,
-                        horizontal: 16,
-                      ),
+                    border: Border.all(
+                      color: _isValidUrl 
+                          ? Colors.green 
+                          : _isInvalidUrl 
+                              ? Colors.red 
+                              : Colors.transparent,
+                      width: 1.0,
                     ),
-                    onSubmitted: (_) => _searchLink(),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: _linkController,
+                        focusNode: _linkFocusNode,
+                        decoration: InputDecoration(
+                          hintText: 'Paste product URL',
+                          border: InputBorder.none,
+                          prefixIcon: Icon(
+                            Icons.link,
+                            color: _isValidUrl 
+                                ? Colors.green 
+                                : _isInvalidUrl 
+                                    ? Colors.red 
+                                    : null,
+                          ),
+                          suffixIcon: _isProcessingUrl
+                              ? Container(
+                                  margin: const EdgeInsets.all(10),
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      _isValidUrl ? Colors.green : Theme.of(context).primaryColor
+                                    ),
+                                  ),
+                                )
+                              : IconButton(
+                                  icon: Icon(
+                                    _isValidUrl ? Icons.check_circle : Icons.search,
+                                    color: _isValidUrl 
+                                        ? Colors.green 
+                                        : _isInvalidUrl 
+                                            ? Colors.red 
+                                            : null,
+                                  ),
+                                  onPressed: _processUrl,
+                                ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 16,
+                            horizontal: 16,
+                          ),
+                        ),
+                        onChanged: (_) => _validateUrlInput(),
+                        onSubmitted: (_) => _processUrl(),
+                        enabled: !_isProcessingUrl,
+                      ),
+                      // Show retailer name if URL is valid
+                      if (_isValidUrl && _retailerName.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                          child: Text(
+                            'Found: $_retailerName',
+                            style: TextStyle(
+                              color: Colors.green[700],
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),

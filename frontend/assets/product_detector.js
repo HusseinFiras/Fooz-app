@@ -2134,5 +2134,458 @@ function extractVariantInfo() {
     sizes: variants.sizes.length,
     otherOptions: variants.otherOptions.length,
   });
+  const sizeContainerSelectors = [
+    ".size-container",
+    ".sizes",
+    ".product-sizes",
+    ".size-options",
+    ".size-selection",
+    ".product-size-selector",
+    ".size-picker",
+    '[data-component="sizes"]',
+    '[data-test="size-selector"]',
+    // Italian/Luxury specific
+    ".taglia",
+    ".taglie",
+    ".size-guide",
+    ".product-variants",
+  ];
+
+  for (const selector of sizeContainerSelectors) {
+    const container = document.querySelector(selector);
+    if (container) {
+      // Look for clickable elements within the container
+      const sizeElements = container.querySelectorAll(
+        'button, li, div[role="button"], a[role="button"], span[data-value]'
+      );
+
+      for (const element of sizeElements) {
+        // Check if this looks like a size element
+        const text = element.textContent.trim();
+        // Filter out noise ("size guide", "size chart", etc.)
+        if (text && !text.match(/guide|chart|info|view|close|select/i)) {
+          variants.sizes.push({
+            text: text,
+            selected:
+              element.classList.contains("selected") ||
+              element.getAttribute("aria-selected") === "true" ||
+              element.classList.contains("active"),
+            value:
+              element.getAttribute("data-value") ||
+              element.getAttribute("data-size"),
+          });
+        }
+      }
+
+      if (variants.sizes.length > 0) {
+        break; // Found sizes, no need to check other selectors
+      }
+    }
+  }
+
+  // Method 3: Look for size data in scripts
+  if (variants.sizes.length === 0) {
+    debug.info(
+      "No size variants found with standard methods, trying luxury retailer patterns"
+    );
+
+    // 1. Look for specialized size containers common in luxury sites
+    const luxurySizeSelectors = [
+      // Gucci specific selectors
+      ".product__options-container",
+      ".product__size-selector",
+      ".pdp__size-selector",
+      ".product-detail__size-selector",
+      ".size-selector__options",
+      ".product-size-selector",
+      ".product-sizes",
+      ".pdp-sizes",
+      // Italian luxury common patterns
+      ".size-dropdown",
+      ".size-options",
+      ".size-picker",
+      '[data-test="product-size-selector"]',
+      '[data-component="SizeSelector"]',
+      '[aria-label="size selector"]',
+      '[data-element-id="size-selector"]',
+    ];
+
+    for (const selector of luxurySizeSelectors) {
+      const container = document.querySelector(selector);
+      debug.info(
+        `Checking luxury size container: ${selector} - ${
+          container ? "Found" : "Not found"
+        }`
+      );
+
+      if (container) {
+        // Look for size elements within the container - find any clickable elements
+        const sizeElements = container.querySelectorAll(
+          'button, li, span[role="button"], div[role="option"], div[data-test-id*="size"], div[data-size]'
+        );
+        debug.info(
+          `Found ${sizeElements.length} potential size elements in container`
+        );
+
+        for (const element of sizeElements) {
+          const text = element.textContent.trim();
+          // Skip non-size elements like headers, guides, etc.
+          if (
+            text &&
+            !text.match(/size guide|chart|view all|select size|size:/i)
+          ) {
+            debug.info(`Found potential size option: ${text}`);
+            variants.sizes.push({
+              text: text,
+              selected:
+                element.classList.contains("selected") ||
+                element.classList.contains("active") ||
+                element.getAttribute("aria-selected") === "true" ||
+                element.getAttribute("data-selected") === "true",
+              value:
+                element.getAttribute("data-size") ||
+                element.getAttribute("data-value"),
+            });
+          }
+        }
+
+        if (variants.sizes.length > 0) {
+          debug.success(
+            `Found ${variants.sizes.length} size options in luxury container`
+          );
+          break;
+        }
+      }
+    }
+  }
+
+  // 2. If still no sizes, try extracting from JavaScript data in the page
+  if (variants.sizes.length === 0) {
+    debug.info("Trying to extract size data from JavaScript variables");
+
+    // Look for inline scripts that might contain product data
+    const scripts = document.querySelectorAll("script:not([src])");
+
+    for (const script of scripts) {
+      const content = script.textContent;
+
+      // Look for common patterns in JS object declarations
+      if (
+        content.includes('"sizes":') ||
+        content.includes('"variants":') ||
+        content.includes("sizes:") ||
+        content.includes("variants:")
+      ) {
+        try {
+          // Try to extract JSON-like structures
+          const sizeMatches =
+            content.match(/["']sizes["']\s*:\s*(\[.*?\])/s) ||
+            content.match(/sizes\s*:\s*(\[.*?\])/s);
+
+          if (sizeMatches && sizeMatches[1]) {
+            // Convert to valid JSON by replacing single quotes and fixing unquoted keys
+            let jsonStr = sizeMatches[1]
+              .replace(/'/g, '"')
+              .replace(/(\w+):/g, '"$1":');
+
+            try {
+              const sizeData = JSON.parse(jsonStr);
+              debug.info(`Found size data in script: ${sizeData.length} items`);
+
+              // Process the extracted size data
+              for (const size of sizeData) {
+                // Handle different possible structures
+                if (typeof size === "string") {
+                  variants.sizes.push({
+                    text: size,
+                    selected: false,
+                    value: size,
+                  });
+                } else if (typeof size === "object") {
+                  // Extract size info from object
+                  const text =
+                    size.name || size.label || size.value || size.size || "";
+                  if (text) {
+                    variants.sizes.push({
+                      text: text,
+                      selected: size.selected || size.isSelected || false,
+                      value: size.value || size.id || text,
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              debug.error(`Error parsing size JSON: ${e.message}`);
+            }
+          }
+        } catch (e) {
+          debug.error(`Error processing script content: ${e.message}`);
+        }
+      }
+
+      if (variants.sizes.length > 0) break;
+    }
+  }
+
+  // 3. Last resort: Look for any element that resembles a size option
+  if (variants.sizes.length === 0) {
+    debug.info("Trying generic size element detection");
+
+    // Look for elements that match size patterns (like EU sizes, US sizes, etc.)
+    const sizePatternElements = Array.from(
+      document.querySelectorAll("div, span, button, li")
+    ).filter((el) => {
+      const text = el.textContent.trim();
+      // Match common size patterns: EU 40, 10.5, XXL, 42 IT, etc.
+      return (
+        text.match(
+          /^(XS|S|M|L|XL|XXL|XXXL|[0-9]+(\.[05])?|EU\s*[0-9]+|[0-9]+\s*IT|IT\s*[0-9]+)$/i
+        ) &&
+        text.length < 10 && // Size text is usually short
+        el.getBoundingClientRect().width < 100
+      ); // Size elements are usually small
+    });
+
+    debug.info(
+      `Found ${sizePatternElements.length} potential generic size elements`
+    );
+
+    for (const element of sizePatternElements) {
+      variants.sizes.push({
+        text: element.textContent.trim(),
+        selected:
+          element.classList.contains("selected") ||
+          element.classList.contains("active") ||
+          element.getAttribute("aria-selected") === "true",
+        value:
+          element.getAttribute("data-value") ||
+          element.getAttribute("data-size"),
+      });
+    }
+  }
+
+  // Deduplicate variants (same as before)
+  function deduplicateVariants(variantArray) {
+    const uniqueMap = new Map();
+
+    // Prioritize selected variants
+    variantArray.forEach((variant) => {
+      const existingVariant = uniqueMap.get(variant.text);
+      if (variant.selected || !existingVariant) {
+        uniqueMap.set(variant.text, variant);
+      }
+    });
+
+    return Array.from(uniqueMap.values());
+  }
+
+  if (variants.colors.length > 0) {
+    variants.colors = deduplicateVariants(variants.colors);
+  }
+  if (variants.sizes.length > 0) {
+    variants.sizes = deduplicateVariants(variants.sizes);
+  }
+  if (variants.otherOptions.length > 0) {
+    variants.otherOptions = deduplicateVariants(variants.otherOptions);
+  }
+  if (variants.sizes.length === 0) {
+    debug.info("Trying to extract sizes from Select2 components");
+
+    // Check for Select2 containers or Gucci's custom selectors
+    const select2Containers = document.querySelectorAll(
+      ".select2-container, .select2-selection, .custom-select-size, " +
+        '[id*="select2"], [aria-labelledby*="select2"], [aria-owns*="select2"]'
+    );
+
+    if (select2Containers.length > 0) {
+      debug.info(
+        `Found ${select2Containers.length} potential Select2 containers`
+      );
+
+      // Look specifically for Gucci's pattern
+      const gucciSizeSelect = document.querySelector(
+        '.custom-select-size, [aria-labelledby="select2-pdp-size-selector-container"]'
+      );
+
+      if (gucciSizeSelect) {
+        debug.info("Found Gucci Select2 size container");
+
+        // 1. Check for currently selected size
+        const selectedContent = gucciSizeSelect.querySelector(
+          ".custom-select-content-size, .select2-selection__rendered"
+        );
+        if (
+          selectedContent &&
+          !selectedContent.textContent.toLowerCase().includes("select size")
+        ) {
+          const sizeText = selectedContent.textContent.trim();
+          debug.info(`Found selected size: ${sizeText}`);
+          variants.sizes.push({
+            text: sizeText,
+            selected: true,
+            value: sizeText,
+          });
+        }
+
+        // 2. Look for the dropdown container referenced by aria attributes
+        const dropdownId =
+          gucciSizeSelect.getAttribute("aria-owns") ||
+          gucciSizeSelect.getAttribute("aria-controls");
+
+        if (dropdownId) {
+          const dropdown = document.getElementById(dropdownId);
+          if (dropdown) {
+            debug.info(`Found Select2 dropdown with ID: ${dropdownId}`);
+            const sizeOptions = dropdown.querySelectorAll(
+              "li, .select2-results__option"
+            );
+
+            for (const option of sizeOptions) {
+              const text = option.textContent.trim();
+              if (text && !text.toLowerCase().includes("select size")) {
+                debug.info(`Found size option: ${text}`);
+                variants.sizes.push({
+                  text: text,
+                  selected: option.classList.contains(
+                    "select2-results__option--highlighted"
+                  ),
+                  value: option.getAttribute("id") || text,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // If still no sizes, try to find the sizes in the page source
+    if (
+      variants.sizes.length === 0 &&
+      window.location.href.includes("gucci.com")
+    ) {
+      debug.info("Trying to extract Gucci sizes from page source");
+
+      // Specifically for Gucci, look for characteristic size pattern
+      const sizePatternsGucci = [
+        /\d{2}(\.\d)?\s*IT/i, // e.g., "34 IT", "34.5 IT"
+        /IT\s*\d{2}(\.\d)?/i, // e.g., "IT 34", "IT 34.5"
+        /EU\s*\d{2}(\.\d)?/i, // e.g., "EU 34", "EU 34.5"
+        /\d{2}(\.\d)?\s*EU/i, // e.g., "34 EU", "34.5 EU"
+      ];
+
+      // Look through all text nodes for these patterns
+      const allTextNodes = [];
+      const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+      );
+
+      let node;
+      while ((node = walker.nextNode())) {
+        const text = node.textContent.trim();
+        if (text.length > 0 && text.length < 10) {
+          // Size text is typically short
+          for (const pattern of sizePatternsGucci) {
+            if (pattern.test(text)) {
+              debug.info(`Found text matching Gucci size pattern: ${text}`);
+              allTextNodes.push({
+                text: text,
+                node: node,
+              });
+              break;
+            }
+          }
+        }
+      }
+
+      // Look for clustered size text nodes (likely size options)
+      if (allTextNodes.length > 0) {
+        debug.info(
+          `Found ${allTextNodes.length} potential Gucci size text nodes`
+        );
+
+        // Add them as size options
+        for (const item of allTextNodes) {
+          // Check if this text node is in a presentational element (not hidden/utility)
+          const parent = item.node.parentElement;
+          if (
+            parent &&
+            getComputedStyle(parent).display !== "none" &&
+            !parent.classList.contains("hidden") &&
+            parent.getBoundingClientRect().width > 0
+          ) {
+            variants.sizes.push({
+              text: item.text,
+              selected: false,
+              value: item.text,
+            });
+          }
+        }
+      }
+
+      // Look for JavaScript variables with size data
+      const scripts = document.querySelectorAll("script:not([src])");
+      for (const script of scripts) {
+        if (
+          script.textContent.includes("pdpSizes") ||
+          script.textContent.includes("availableSizes") ||
+          script.textContent.includes("sizesAvailable")
+        ) {
+          try {
+            // Use regex to find size arrays
+            const sizeArrayMatch =
+              script.textContent.match(/pdpSizes\s*=\s*(\[.*?\])/s) ||
+              script.textContent.match(/availableSizes\s*=\s*(\[.*?\])/s) ||
+              script.textContent.match(/sizesAvailable\s*=\s*(\[.*?\])/s);
+
+            if (sizeArrayMatch && sizeArrayMatch[1]) {
+              // Try to convert to valid JSON
+              let jsonStr = sizeArrayMatch[1]
+                .replace(/'/g, '"')
+                .replace(/(\w+):/g, '"$1":');
+
+              try {
+                const sizeData = JSON.parse(jsonStr);
+                debug.info(`Found ${sizeData.length} sizes in JavaScript data`);
+
+                for (const size of sizeData) {
+                  if (typeof size === "string") {
+                    variants.sizes.push({
+                      text: size,
+                      selected: false,
+                      value: size,
+                    });
+                  } else if (typeof size === "object") {
+                    const text = size.label || size.name || size.size || "";
+                    if (text) {
+                      variants.sizes.push({
+                        text: text,
+                        selected: false,
+                        value: size.value || size.id || text,
+                      });
+                    }
+                  }
+                }
+              } catch (e) {
+                debug.error(`Error parsing size JSON: ${e.message}`);
+              }
+            }
+          } catch (e) {
+            debug.error(`Error processing Gucci script content: ${e.message}`);
+          }
+        }
+      }
+    }
+  }
+  
+  debug.info("Variant extraction complete", {
+    colors: variants.colors.length,
+    sizes: variants.sizes.length,
+    otherOptions: variants.otherOptions.length,
+  });
+
+  debug.timing.end("Variant Extraction", variantTimer);
   return variants;
 }
