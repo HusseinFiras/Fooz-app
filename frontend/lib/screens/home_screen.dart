@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/data_service.dart';
 import '../services/url_handler_service.dart';
 import 'webview_screen.dart';
@@ -46,6 +47,35 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _selectedCategoryIndex = 0;
   final List<String> _categories = ['All Brands', 'Luxury', 'Fashion', 'Favorites'];
 
+  // Brand categorization
+  final List<String> _luxuryBrands = [
+    'Gucci',
+    'Cartier',
+    'Swarovski',
+    'Miu Miu',
+    'Beymen',
+    'Blue Diamond',
+    'Lacoste',
+    'Sandro',
+    'Deep Atelier',
+    'Mango'
+  ];
+
+  final List<String> _fashionBrands = [
+    'Zara',
+    'Stradivarius',
+    'Guess',
+    'Bershka',
+    'Massimo Dutti',
+    'Pandora',
+    'Victoria\'s Secret',
+    'Nocturne',
+    'Ipekyol'
+  ];
+
+  // Favorite brands
+  Set<String> _favoriteBrands = {};
+
   // For 3D tilt effect
   double _cardTiltX = 0;
   double _cardTiltY = 0;
@@ -65,6 +95,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+
+    // Load favorite brands
+    _loadFavoriteBrands();
 
     // Main fade animation
     _fadeController = AnimationController(
@@ -135,6 +168,57 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeCardAnimations();
     });
+  }
+
+  Future<void> _loadFavoriteBrands() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _favoriteBrands = Set<String>.from(prefs.getStringList('favoriteBrands') ?? []);
+    });
+  }
+
+  Future<void> _saveFavoriteBrands() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('favoriteBrands', _favoriteBrands.toList());
+  }
+
+  void _toggleFavorite(String brandName) {
+    setState(() {
+      if (_favoriteBrands.contains(brandName)) {
+        _favoriteBrands.remove(brandName);
+      } else {
+        _favoriteBrands.add(brandName);
+      }
+    });
+    _saveFavoriteBrands();
+    
+    // Show confirmation
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_favoriteBrands.contains(brandName) 
+          ? 'Added $brandName to favorites' 
+          : 'Removed $brandName from favorites'
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 1),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        backgroundColor: _favoriteBrands.contains(brandName) 
+          ? Colors.green[700] 
+          : Colors.grey[800],
+        action: SnackBarAction(
+          label: 'OK',
+          textColor: Colors.white,
+          onPressed: () {},
+        ),
+      ),
+    );
+    
+    // If we're on the favorites tab, refresh animations
+    if (_selectedCategoryIndex == 3) {
+      _initializeCardAnimations();
+    }
   }
 
   void _initializeCardAnimations() {
@@ -219,8 +303,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _navigateToSite(int index) {
     // Add haptic feedback with different patterns based on brand type
-    if (_dataService.retailSites[index]['name'] == 'Gucci' || 
-        _dataService.retailSites[index]['name'] == 'Cartier') {
+    if (_luxuryBrands.contains(_dataService.retailSites[index]['name'])) {
       HapticFeedback.mediumImpact(); // Premium feel for luxury brands
     } else {
       HapticFeedback.lightImpact(); // Standard feedback for other brands
@@ -400,6 +483,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _cardTiltX = 0;
       _cardTiltY = 0;
     });
+  }
+
+  bool _shouldShowSite(String? siteName) {
+    if (siteName == null) return false;
+    
+    switch (_selectedCategoryIndex) {
+      case 1: // Luxury
+        return _luxuryBrands.contains(siteName);
+      case 2: // Fashion
+        return _fashionBrands.contains(siteName);
+      case 3: // Favorites
+        return _favoriteBrands.contains(siteName);
+      case 0: // All
+      default:
+        return true;
+    }
   }
 
   @override
@@ -690,13 +789,47 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                           ],
                                   ),
                                   child: Center(
-                                    child: Text(
-                                      _categories[index],
-                                      style: TextStyle(
-                                        color: isSelected ? Colors.white : Colors.black54,
-                                        fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
-                                        fontSize: 14,
-                                      ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (index == 3 && isSelected)
+                                          Padding(
+                                            padding: const EdgeInsets.only(right: 5),
+                                            child: Icon(
+                                              Icons.favorite,
+                                              color: Colors.white,
+                                              size: 14,
+                                            ),
+                                          ),
+                                        Text(
+                                          _categories[index],
+                                          style: TextStyle(
+                                            color: isSelected ? Colors.white : Colors.black54,
+                                            fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        if (index == 3 && _favoriteBrands.isNotEmpty && !isSelected)
+                                          Container(
+                                            margin: const EdgeInsets.only(left: 5),
+                                            width: 18,
+                                            height: 18,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: Colors.red.withOpacity(0.8),
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                _favoriteBrands.length.toString(),
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                   ),
                                 ),
@@ -715,20 +848,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
                           final site = _dataService.retailSites[index];
+                          final name = site['name']!;
                           
                           // Skip items based on selected category
-                          if (_selectedCategoryIndex == 1 && 
-                              !['Gucci', 'Cartier', 'Swarovski', 'Miu Miu'].contains(site['name'])) {
-                            return const SizedBox.shrink();
-                          }
-                          
-                          if (_selectedCategoryIndex == 2 && 
-                              !['Zara', 'Stradivarius', 'Guess', 'Mango', 'Bershka'].contains(site['name'])) {
-                            return const SizedBox.shrink();
-                          }
-                          
-                          if (_selectedCategoryIndex == 3 && 
-                              !['Gucci', 'Zara', 'Cartier'].contains(site['name'])) {
+                          if (!_shouldShowSite(name)) {
                             return const SizedBox.shrink();
                           }
                           
@@ -755,6 +878,58 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       ),
                     ),
                   ),
+                  
+                  // Empty state for favorites
+                  if (_selectedCategoryIndex == 3 && _favoriteBrands.isEmpty)
+                    SliverToBoxAdapter(
+                      child: Container(
+                        height: 200,
+                        alignment: Alignment.center,
+                        margin: const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 10,
+                              spreadRadius: 0,
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.favorite_border,
+                              size: 50,
+                              color: Colors.grey[400],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No favorites yet',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 30),
+                              child: Text(
+                                'Tap the heart icon on any brand to add it to your favorites',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   
                   // Bottom padding
                   const SliverToBoxAdapter(
@@ -802,219 +977,258 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildEnhancedRetailerCard(Map<String, String> site, int index) {
-    final name = site['name']!;
-    final bool isLuxuryBrand = ['Gucci', 'Cartier', 'Swarovski', 'Miu Miu'].contains(name);
-    
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 26),
-      child: GestureDetector(
-        onTapDown: (details) {
-          // Calculate the relative position for 3D effect
-          final size = context.size ?? Size(0, 0);
-          _updateCardTilt(details.localPosition.dx, details.localPosition.dy, size);
-        },
-        onTapUp: (_) => _resetCardTilt(),
-        onTapCancel: () => _resetCardTilt(),
-        onTap: () => _navigateToSite(index),
-        child: Transform(
-          transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.001) // perspective
-            ..rotateX(_cardTiltX * (math.pi / 180))
-            ..rotateY(_cardTiltY * (math.pi / 180)),
-          alignment: Alignment.center,
-          child: Hero(
-            tag: 'retailer_card_$index',
-            child: Container(
-              height: 170,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 10,
-                    spreadRadius: 0,
-                    offset: const Offset(0, 5),
-                  ),
-                  BoxShadow(
-                    color: isLuxuryBrand 
-                        ? Theme.of(context).colorScheme.secondary.withOpacity(0.3)
-                        : Colors.transparent,
-                    blurRadius: 12,
-                    spreadRadius: -2,
-                    offset: const Offset(0, 7),
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    // Background image with blur or gradient
-                    _brandBackgrounds.containsKey(name)
-                        ? ShaderMask(
-                            shaderCallback: (rect) {
-                              return LinearGradient(
-                                begin: Alignment.centerLeft,
-                                end: Alignment.centerRight,
-                                colors: [
-                                  Colors.black.withOpacity(0.9),
-                                  Colors.black.withOpacity(0.7),
-                                  Colors.black.withOpacity(0.5),
-                                ],
-                              ).createShader(rect);
-                            },
-                            blendMode: BlendMode.darken,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                image: DecorationImage(
-                                  image: AssetImage(_brandBackgrounds[name]!),
-                                  fit: BoxFit.cover,
-                                  alignment: Alignment.center,
-                                ),
-                              ),
-                              ),
-                          )
-                        : Container(
+  // This fixed version focuses specifically on the button area that's causing the overflow
+
+Widget _buildEnhancedRetailerCard(Map<String, String> site, int index) {
+  final name = site['name']!;
+  final bool isLuxuryBrand = _luxuryBrands.contains(name);
+  final bool isFavorite = _favoriteBrands.contains(name);
+  
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 26),
+    child: GestureDetector(
+      onTapDown: (details) {
+        // Calculate the relative position for 3D effect
+        final size = context.size ?? Size(0, 0);
+        _updateCardTilt(details.localPosition.dx, details.localPosition.dy, size);
+      },
+      onTapUp: (_) => _resetCardTilt(),
+      onTapCancel: () => _resetCardTilt(),
+      onTap: () => _navigateToSite(index),
+      child: Transform(
+        transform: Matrix4.identity()
+          ..setEntry(3, 2, 0.001) // perspective
+          ..rotateX(_cardTiltX * (math.pi / 180))
+          ..rotateY(_cardTiltY * (math.pi / 180)),
+        alignment: Alignment.center,
+        child: Hero(
+          tag: 'retailer_card_$index',
+          child: Container(
+            height: 175, // Adjusted height
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 10,
+                  spreadRadius: 0,
+                  offset: const Offset(0, 5),
+                ),
+                BoxShadow(
+                  color: isLuxuryBrand 
+                      ? Theme.of(context).colorScheme.secondary.withOpacity(0.3)
+                      : Colors.transparent,
+                  blurRadius: 12,
+                  spreadRadius: -2,
+                  offset: const Offset(0, 7),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Background image with blur or gradient
+                  _brandBackgrounds.containsKey(name)
+                      ? ShaderMask(
+                          shaderCallback: (rect) {
+                            return LinearGradient(
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                              colors: [
+                                Colors.black.withOpacity(0.9),
+                                Colors.black.withOpacity(0.7),
+                                Colors.black.withOpacity(0.5),
+                              ],
+                            ).createShader(rect);
+                          },
+                          blendMode: BlendMode.darken,
+                          child: Container(
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Theme.of(context).colorScheme.primary,
-                                  Theme.of(context).colorScheme.primary.withOpacity(0.8),
-                                  Theme.of(context).colorScheme.primary.withOpacity(0.6),
-                                ],
+                              image: DecorationImage(
+                                image: AssetImage(_brandBackgrounds[name]!),
+                                fit: BoxFit.cover,
+                                alignment: Alignment.center,
                               ),
                             ),
                           ),
-                    
-                    // Subtle glass effect overlay
-                    Positioned.fill(
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(
-                          sigmaX: 0.5,
-                          sigmaY: 0.5,
+                        )
+                      : Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: isLuxuryBrand
+                                  ? [
+                                      const Color(0xFF1E1E1E),
+                                      const Color(0xFF2D2D2D),
+                                      const Color(0xFF3A3A3A),
+                                    ]
+                                  : [
+                                      Theme.of(context).colorScheme.primary,
+                                      Theme.of(context).colorScheme.primary.withOpacity(0.8),
+                                      Theme.of(context).colorScheme.primary.withOpacity(0.6),
+                                    ],
+                            ),
+                          ),
                         ),
-                        child: Container(
-                          color: Colors.transparent,
-                        ),
+                  
+                  // Subtle glass effect overlay
+                  Positioned.fill(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(
+                        sigmaX: 0.5,
+                        sigmaY: 0.5,
+                      ),
+                      child: Container(
+                        color: Colors.transparent,
                       ),
                     ),
-                    
-                    // Content overlay with gradient
-                    Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-                            Colors.black.withOpacity(0.7),
-                            Colors.black.withOpacity(0.5),
-                            Colors.black.withOpacity(0.2),
-                          ],
-                        ),
+                  ),
+                  
+                  // Content overlay with gradient
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [
+                          Colors.black.withOpacity(0.7),
+                          Colors.black.withOpacity(0.5),
+                          Colors.black.withOpacity(0.2),
+                        ],
                       ),
                     ),
-                    
-                    // Brand logo or first letter badge (positioned in top right corner)
-                    Positioned(
-                      top: 16,
-                      right: 16,
+                  ),
+                  
+                  // Favorite button
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: GestureDetector(
+                      onTap: () {
+                        _toggleFavorite(name);
+                        // Prevent the card tap
+                        HapticFeedback.selectionClick();
+                      },
                       child: Container(
                         width: 36,
                         height: 36,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.white.withOpacity(0.2),
-                          border: Border.all(
-                            color: Colors.white.withOpacity(0.3),
-                            width: 1,
-                          ),
+                          color: Colors.black.withOpacity(0.3),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.black.withOpacity(0.2),
-                              blurRadius: 8,
+                              blurRadius: 4,
                               offset: const Offset(0, 2),
                             ),
                           ],
                         ),
-                        child: Center(
-                          child: Text(
-                            name[0],
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                            ),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          transitionBuilder: (Widget child, Animation<double> animation) {
+                            return ScaleTransition(scale: animation, child: child);
+                          },
+                          child: Icon(
+                            isFavorite ? Icons.favorite : Icons.favorite_border,
+                            key: ValueKey<bool>(isFavorite),
+                            color: isFavorite ? Colors.red : Colors.white,
+                            size: 20,
                           ),
                         ),
                       ),
                     ),
-                    
-                    // Content - Store name and Visit button
-                    Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          // Store name
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                name.toUpperCase(),
-                                style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                  letterSpacing: 1.5,
-                                  shadows: [
-                                    Shadow(
-                                      color: Colors.black54,
-                                      offset: Offset(0, 2),
-                                      blurRadius: 4,
-                                    ),
-                                  ],
+                  ),
+                  
+                  // Main content area with padding
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Brand name section
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Brand name - moved up higher since we removed circles
+                            Text(
+                              name.toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 32, // Larger font size
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                                letterSpacing: 1.5,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black54,
+                                    offset: Offset(0, 2),
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            
+                            // Category tag - directly below the brand name
+                            if (isLuxuryBrand && !_fashionBrands.contains(name))
+                              Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.secondary.withOpacity(0.7),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'LUXURY',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              )
+                            else if (_fashionBrands.contains(name) && !_luxuryBrands.contains(name))
+                              Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withOpacity(0.7),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'FASHION',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                    letterSpacing: 1,
+                                  ),
                                 ),
                               ),
-                              
-                              // Category tag for luxury brands
-                              if (isLuxuryBrand)
-                                Container(
-                                  margin: const EdgeInsets.only(top: 8),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.secondary.withOpacity(0.7),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'LUXURY',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w500,
-                                      letterSpacing: 1,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          
-                          // Visit button
-                          Container(
-                            margin: const EdgeInsets.only(top: 10),
+                          ],
+                        ),
+                            
+                        // Explore button at the bottom
+                        Align(
+                          alignment: Alignment.bottomRight,
+                          child: Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 16,
-                              vertical: 10,
+                              vertical: 8,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.15),
+                              color: Colors.black.withOpacity(0.3),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: Colors.white.withOpacity(0.3),
@@ -1042,35 +1256,36 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               ],
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                    
-                    // Shimmer effect on hover (subtle shine)
-                    Positioned.fill(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            stops: const [0, 0.3, 0.6, 1],
-                            colors: [
-                              Colors.white.withOpacity(0.1),
-                              Colors.white.withOpacity(0),
-                              Colors.white.withOpacity(0),
-                              Colors.white.withOpacity(0.1),
-                            ],
-                          ),
+                  ),
+                  
+                  // Shimmer effect on hover (subtle shine)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          stops: const [0, 0.3, 0.6, 1],
+                          colors: [
+                            Colors.white.withOpacity(0.1),
+                            Colors.white.withOpacity(0),
+                            Colors.white.withOpacity(0),
+                            Colors.white.withOpacity(0.1),
+                          ],
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
