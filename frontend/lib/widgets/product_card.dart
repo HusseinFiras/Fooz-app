@@ -12,36 +12,6 @@ class ProductCard extends StatelessWidget {
     required this.onTap,
   }) : super(key: key);
 
-  Widget _buildVariantIndicator(String type, int count, Color color) {
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            type == 'Colors' ? Icons.palette : Icons.straighten,
-            size: 12,
-            color: color,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            count.toString(),
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -128,27 +98,8 @@ class ProductCard extends StatelessWidget {
                         ],
                       ],
                     ),
-                    if (productInfo.variants != null) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          if (productInfo.variants!['colors']?.isNotEmpty ??
-                              false)
-                            _buildVariantIndicator(
-                              'Colors',
-                              productInfo.variants!['colors']!.length,
-                              Colors.red[400]!,
-                            ),
-                          if (productInfo.variants!['sizes']?.isNotEmpty ??
-                              false)
-                            _buildVariantIndicator(
-                              'Sizes',
-                              productInfo.variants!['sizes']!.length,
-                              Colors.blue[400]!,
-                            ),
-                        ],
-                      ),
-                    ],
+                    // Remove all variant display sections - sizes and options
+                    // They will be shown only in the details view
                   ],
                 ),
               ),

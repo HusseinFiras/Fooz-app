@@ -77,7 +77,13 @@ class UrlHandlerService {
 
   /// Finds the matching retailer for a given domain
   Map<String, dynamic> _findMatchingRetailer(String domain) {
-    // Loop through all retail sites to find a matching domain
+    debugPrint('Matching domain: $domain');
+    
+    // Extract core domain name without regional prefixes
+    final coreDomain = _extractCoreDomain(domain);
+    debugPrint('Core domain extracted: $coreDomain');
+    
+    // First pass - try to match with the core domain
     for (int i = 0; i < _dataService.retailSites.length; i++) {
       final siteUrl = _dataService.retailSites[i]['url'] ?? '';
       final siteName = _dataService.retailSites[i]['name'] ?? '';
@@ -85,61 +91,142 @@ class UrlHandlerService {
       try {
         final siteUri = Uri.parse(siteUrl);
         final siteDomain = siteUri.host;
+        final siteCoreDomain = _extractCoreDomain(siteDomain);
         
-        // Check for exact match or subdomain
-        if (_domainsMatch(domain, siteDomain)) {
+        debugPrint('Comparing with: $siteName - $siteDomain (core: $siteCoreDomain)');
+        
+        // If exact match with the site domain
+        if (domain == siteDomain) {
+          debugPrint('Exact match found!');
           return {
             'index': i,
             'name': siteName,
             'domain': siteDomain
           };
         }
+        
+        // If core domains match
+        if (coreDomain == siteCoreDomain) {
+          debugPrint('Core domain match found!');
+          return {
+            'index': i, 
+            'name': siteName,
+            'domain': siteDomain
+          };
+        }
       } catch (e) {
-        debugPrint('Error parsing URL for site ${_dataService.retailSites[i]['name']}: $e');
+        debugPrint('Error parsing URL for site $siteName: $e');
         continue;
+      }
+    }
+    
+    // Second pass - try partial domain matching for hyphenated domains
+    if (coreDomain.contains('-')) {
+      final domainParts = coreDomain.split('-');
+      
+      for (int i = 0; i < _dataService.retailSites.length; i++) {
+        final siteUrl = _dataService.retailSites[i]['url'] ?? '';
+        final siteName = _dataService.retailSites[i]['name'] ?? '';
+        
+        try {
+          final siteUri = Uri.parse(siteUrl);
+          final siteDomain = siteUri.host;
+          final siteCoreDomain = _extractCoreDomain(siteDomain);
+          
+          // Check if any part of the domain matches the retailer name
+          bool nameMatch = siteName.toLowerCase().contains(domainParts[0].toLowerCase()) || 
+                          (domainParts.length > 1 && siteName.toLowerCase().contains(domainParts[1].toLowerCase()));
+          
+          // Also check if any part of the site's core domain matches
+          bool domainMatch = false;
+          if (siteCoreDomain.contains('-')) {
+            final siteDomainParts = siteCoreDomain.split('-');
+            domainMatch = domainParts.any((part) => 
+                siteDomainParts.any((sitePart) => 
+                    sitePart.toLowerCase() == part.toLowerCase()));
+          }
+          
+          if (nameMatch || domainMatch) {
+            debugPrint('Partial match found for hyphenated domain with $siteName');
+            return {
+              'index': i,
+              'name': siteName,
+              'domain': siteDomain
+            };
+          }
+        } catch (e) {
+          debugPrint('Error during partial match for $siteName: $e');
+          continue;
+        }
+      }
+    }
+    
+    // Third pass - look for brand names in the domain
+    for (int i = 0; i < _dataService.retailSites.length; i++) {
+      final siteName = _dataService.retailSites[i]['name'] ?? '';
+      
+      // Clean up brand name for comparison (remove spaces, lowercase)
+      final cleanBrandName = siteName.toLowerCase().replaceAll(' ', '').replaceAll("'", "");
+      final cleanDomain = domain.toLowerCase();
+      
+      // Check if the domain contains the brand name
+      if (cleanDomain.contains(cleanBrandName) && cleanBrandName.length > 3) {
+        debugPrint('Brand name $cleanBrandName found in domain $cleanDomain');
+        return {
+          'index': i,
+          'name': siteName,
+          'domain': Uri.parse(_dataService.retailSites[i]['url'] ?? '').host
+        };
       }
     }
     
     return {'index': -1, 'name': '', 'domain': ''};
   }
-
-  /// Comprehensive domain matching
-  bool _domainsMatch(String domain1, String domain2) {
-    // Normalize domains by removing www. prefix
-    String normDomain1 = domain1.startsWith('www.') ? domain1.substring(4) : domain1;
-    String normDomain2 = domain2.startsWith('www.') ? domain2.substring(4) : domain2;
+  
+  /// Extracts the core domain name from a full domain
+  /// Examples:
+  /// - www.gucci.com -> gucci.com
+  /// - eu.sandro-paris.com -> sandro-paris.com
+  /// - shop.armani.com -> armani.com
+  /// - us.louisvuitton.com -> louisvuitton.com
+  String _extractCoreDomain(String domain) {
+    // Remove www. prefix if present
+    String result = domain.startsWith('www.') ? domain.substring(4) : domain;
     
-    // Check for exact match after normalization
-    if (normDomain1 == normDomain2) {
-      return true;
-    }
+    // Handle regional/functional prefixes
+    List<String> parts = result.split('.');
     
-    // Check for subdomain relationship
-    if (domain1.endsWith('.$normDomain2') || domain2.endsWith('.$normDomain1')) {
-      return true;
-    }
-    
-    // Check for regional variants (e.g., gucci.com vs gucci.com.tr)
-    List<String> parts1 = normDomain1.split('.');
-    List<String> parts2 = normDomain2.split('.');
-    
-    if (parts1.length >= 2 && parts2.length >= 2) {
-      // Compare the main domain name (e.g., "gucci" in gucci.com)
-      if (parts1[parts1.length - 2] == parts2[parts2.length - 2]) {
-        return true;
+    // If domain has enough parts and starts with a known prefix
+    if (parts.length >= 3) {
+      String prefix = parts[0].toLowerCase();
+      
+      // List of common regional or functional prefixes
+      List<String> knownPrefixes = [
+        'eu', 'us', 'uk', 'fr', 'it', 'de', 'es', 'au', 'ca', 'jp', 'cn', 'ru', 
+        'tr', 'kr', 'br', 'mx', 'in', 'hk', 'sg', 'nl', 'be', 'ch', 'pl', 'se',
+        'at', 'pt', 'no', 'fi', 'dk', 'gr', 'nz', 'za', 'ae', 'sa', 'qa', 'my',
+        'th', 'id', 'ph', 'vn', 'cz', 'hu', 'ro', 'bg', 'hr', 'rs', 'si', 'sk',
+        'ee', 'lv', 'lt', 'ua', 'by', 'md', 'am', 'az', 'ge', 'kz', 'uz', 'tm',
+        'shop', 'store', 'online', 'mobile', 'app', 'api', 'm', 'web'
+      ];
+      
+      if (knownPrefixes.contains(prefix)) {
+        // Remove the prefix
+        result = parts.sublist(1).join('.');
       }
     }
     
-    return false;
+    return result;
   }
-
+  
   /// Check if URL looks like a product page based on common patterns
   bool _looksLikeProductPage(String url) {
     final productPatterns = [
       r'/p/', r'/product/', r'/products/', r'/item/', r'/items/', 
       r'/pd/', r'/urun/', r'/detay/', r'/product-detail/', 
       r'/ProductDetails', r'/productdetail', r'/goods/',
-      r'/shop\/products\/', r'/product-p/'
+      r'/shop\/products\/', r'/product-p/', r'/-p-', r'/dp/',
+      r'/fp/', r'/skus/'
     ];
     
     for (final pattern in productPatterns) {
@@ -161,53 +248,64 @@ class UrlHandlerService {
     final baseUrl = retailer['url']!;
     final encodedQuery = Uri.encodeComponent(query);
     
-    final String domain = Uri.parse(baseUrl).host;
+    // Use the normalized site URL as the base
+    final Uri siteUri = Uri.parse(baseUrl);
+    final String siteDomain = siteUri.host;
     
-    // Map specific domains to their search URL formats
-    switch (domain) {
-      case 'www.gucci.com':
-        return '$baseUrl/search?query=$encodedQuery';
-      case 'www.zara.com':
-        return '$baseUrl/search?q=$encodedQuery';
-      case 'www.stradivarius.com':
-        return '$baseUrl/search?term=$encodedQuery';
-      case 'www.cartier.com':
-        return '$baseUrl/search?q=$encodedQuery';
-      case 'www.swarovski.com':
-        return '$baseUrl/search/?q=$encodedQuery';
-      case 'www.guess.eu':
-        return '$baseUrl/search?q=$encodedQuery';
-      case 'shop.mango.com':
-        return '$baseUrl/search?kw=$encodedQuery';
-      case 'www.bershka.com':
-        return '$baseUrl/search?q=$encodedQuery';
-      case 'www.massimodutti.com':
-        return '$baseUrl/search?term=$encodedQuery';
-      case 'www.deepatelier.co':
-        return '$baseUrl/search?q=$encodedQuery';
-      case 'tr.pandora.net':
-        return '$baseUrl/search?q=$encodedQuery';
-      case 'www.miumiu.com':
-        return '$baseUrl/search?q=$encodedQuery';
-      case 'www.victoriassecret.com.tr':
-        return '$baseUrl/search?q=$encodedQuery';
-      case 'www.nocturne.com.tr':
-        return '$baseUrl/arama?q=$encodedQuery';
-      case 'www.beymen.com':
-        return '$baseUrl/search?q=$encodedQuery';
-      case 'www.bluediamond.com.tr':
-        return '$baseUrl/arama?q=$encodedQuery';
-      case 'www.lacoste.com.tr':
-        return '$baseUrl/arama?search=$encodedQuery';
-      case 'tr.mancofficial.com':
-        return '$baseUrl/search?type=product&q=$encodedQuery';
-      case 'www.ipekyol.com.tr':
-        return '$baseUrl/arama?q=$encodedQuery';
-      case 'www.sandro.com.tr':
-        return '$baseUrl/search?q=$encodedQuery';
-      default:
-        // Fallback to a common search pattern
-        return '$baseUrl/search?q=$encodedQuery';
+    // Extract core domain to identify retailer
+    final coreDomain = _extractCoreDomain(siteDomain);
+    
+    // Common search patterns by retailer domain pattern
+    if (coreDomain.contains('gucci')) {
+      return '$baseUrl/search?query=$encodedQuery';
+    } else if (coreDomain.contains('zara')) {
+      return '$baseUrl/search?q=$encodedQuery';
+    } else if (coreDomain.contains('stradivarius')) {
+      return '$baseUrl/search?term=$encodedQuery';
+    } else if (coreDomain.contains('cartier')) {
+      return '$baseUrl/search?q=$encodedQuery';
+    } else if (coreDomain.contains('swarovski')) {
+      return '$baseUrl/search/?q=$encodedQuery';
+    } else if (coreDomain.contains('guess')) {
+      return '$baseUrl/search?q=$encodedQuery';
+    } else if (coreDomain.contains('mango')) {
+      return '$baseUrl/search?kw=$encodedQuery';
+    } else if (coreDomain.contains('bershka')) {
+      return '$baseUrl/search?q=$encodedQuery';
+    } else if (coreDomain.contains('massimodutti')) {
+      return '$baseUrl/search?term=$encodedQuery';
+    } else if (coreDomain.contains('deepatelier')) {
+      return '$baseUrl/search?q=$encodedQuery';
+    } else if (coreDomain.contains('pandora')) {
+      return '$baseUrl/search?q=$encodedQuery';
+    } else if (coreDomain.contains('miumiu')) {
+      return '$baseUrl/search?q=$encodedQuery';
+    } else if (coreDomain.contains('victoriassecret')) {
+      return '$baseUrl/search?q=$encodedQuery';
+    } else if (coreDomain.contains('nocturne')) {
+      return '$baseUrl/arama?q=$encodedQuery';
+    } else if (coreDomain.contains('beymen')) {
+      return '$baseUrl/search?q=$encodedQuery';
+    } else if (coreDomain.contains('bluediamond')) {
+      return '$baseUrl/arama?q=$encodedQuery';
+    } else if (coreDomain.contains('lacoste')) {
+      return '$baseUrl/arama?search=$encodedQuery';
+    } else if (coreDomain.contains('mancofficial')) {
+      return '$baseUrl/search?type=product&q=$encodedQuery';
+    } else if (coreDomain.contains('ipekyol')) {
+      return '$baseUrl/arama?q=$encodedQuery';
+    } else if (coreDomain.contains('sandro-paris')) {
+      return '$baseUrl/en/search?q=$encodedQuery';
+    } else if (coreDomain.contains('sandro')) {
+      return '$baseUrl/search?q=$encodedQuery';
     }
+    
+    // Turkish sites often use "arama" instead of "search"
+    if (siteDomain.endsWith('.tr') || baseUrl.contains('/tr/')) {
+      return '$baseUrl/arama?q=$encodedQuery';
+    }
+    
+    // Fallback to common search pattern
+    return '$baseUrl/search?q=$encodedQuery';
   }
 }

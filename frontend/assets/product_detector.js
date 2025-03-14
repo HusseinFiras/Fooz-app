@@ -1768,6 +1768,208 @@ function makeImageUrlAbsolute(imgSrc) {
 /**
  * Improved variant extraction to avoid extracting country codes
  */
+
+// Add this code to your product_detector.js file to improve size detection
+// This should be added to or replace the existing generic size element detection code
+
+// Enhanced size extraction function
+function enhancedSizeDetection() {
+  debug.info("Running enhanced size detection");
+  const sizes = [];
+
+  // Method 1: Look for size buttons on the page
+  const sizeButtons = document.querySelectorAll(
+    '.size-item, .size-button, .size-selector, [data-test="product-size-selector"] button'
+  );
+  debug.info(`Found ${sizeButtons.length} size buttons`);
+
+  if (sizeButtons.length > 0) {
+    for (const button of sizeButtons) {
+      const sizeText = button.textContent.trim();
+      if (sizeText && !sizeText.toLowerCase().includes("select size")) {
+        sizes.push({
+          text: sizeText,
+          selected:
+            button.classList.contains("selected") ||
+            button.classList.contains("active") ||
+            button.getAttribute("aria-selected") === "true",
+          value: button.dataset.size || button.value,
+        });
+      }
+    }
+  }
+
+  // Method 2: Look for size elements in a different format
+  if (sizes.length === 0) {
+    const sizeElements = Array.from(
+      document.querySelectorAll("div, span, label, button")
+    ).filter((el) => {
+      const text = el.textContent.trim();
+      // Match common size patterns: numeric sizes, EU/US sizes, or letter sizes
+      return (
+        (text.match(/^[0-9]+(\.[05])?$/) || // 5, 5.5, 6, etc.
+          text.match(/^(XS|S|M|L|XL|XXL)$/) || // S, M, L, etc.
+          text.match(/^(EU|US|UK)\s*[0-9]+$/) || // EU 38, US 8, etc.
+          text.match(/^[0-9]+\s*(EU|US|UK)$/)) && // 38 EU, 8 US, etc.
+        text.length < 8 && // Size text is usually short
+        el.clientWidth < 80 && // Size elements are usually small
+        el.clientHeight < 80 &&
+        window.getComputedStyle(el).display !== "none"
+      );
+    });
+
+    debug.info(
+      `Found ${sizeElements.length} potential alternative size elements`
+    );
+
+    // For Stradivarius and similar sites - look for size wrapper with size items
+    const strdiSizeItems = document.querySelectorAll(
+      ".js-product-size .size-name"
+    );
+    if (strdiSizeItems.length > 0) {
+      debug.info(`Found ${strdiSizeItems.length} Stradivarius size items`);
+      for (const item of strdiSizeItems) {
+        // Get the parent size item to check if it's selected
+        const parentItem = item.closest(".size-item");
+        const sizeText =
+          item.getAttribute("data-text") || item.textContent.trim();
+
+        if (sizeText) {
+          sizes.push({
+            text: sizeText,
+            selected: parentItem
+              ? parentItem.classList.contains("selected")
+              : false,
+            value: sizeText,
+          });
+        }
+      }
+    }
+
+    // Add the generic size elements found
+    if (sizeElements.length > 0 && sizes.length === 0) {
+      for (const element of sizeElements) {
+        sizes.push({
+          text: element.textContent.trim(),
+          selected:
+            element.classList.contains("selected") ||
+            element.classList.contains("active") ||
+            element.getAttribute("aria-selected") === "true",
+          value: element.dataset.size || element.dataset.value,
+        });
+      }
+    }
+  }
+
+  // Method 3: Extract sizes from the DOM
+  if (sizes.length === 0) {
+    // For Stradivarius and similar sites - check for data in JavaScript objects
+    const scripts = document.querySelectorAll("script:not([src])");
+    for (const script of scripts) {
+      if (
+        script.textContent.includes("window.dataLayer") &&
+        script.textContent.includes("productSizeAvailable")
+      ) {
+        try {
+          const matches = script.textContent.match(
+            /window\.dataLayer\s*=\s*(\[.*?\]);/s
+          );
+          if (matches && matches[1]) {
+            const dataLayer = JSON.parse(matches[1]);
+            for (const item of dataLayer) {
+              if (item.productSizeAvailable) {
+                debug.info(
+                  `Found sizes in dataLayer: ${item.productSizeAvailable}`
+                );
+                const sizeList = item.productSizeAvailable.split(",");
+                for (const size of sizeList) {
+                  sizes.push({
+                    text: size.trim(),
+                    selected: false,
+                    value: size.trim(),
+                  });
+                }
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          debug.error(`Error parsing dataLayer: ${e}`);
+        }
+      }
+
+      // Look for size data in an array or object in the script
+      if (
+        script.textContent.includes('"sizes":') ||
+        script.textContent.includes("sizes:") ||
+        script.textContent.includes("availableSizes")
+      ) {
+        try {
+          const productDataMatch = script.textContent.match(
+            /product\s*[:=]\s*({.*?})/s
+          );
+          if (productDataMatch) {
+            try {
+              // Try to parse and clean the JSON-like string
+              let jsonStr = productDataMatch[1]
+                .replace(/'/g, '"')
+                .replace(/(\w+):/g, '"$1":');
+
+              jsonStr = jsonStr.replace(/,(\s*[\]}])/g, "$1"); // Fix trailing commas
+
+              const productData = JSON.parse(jsonStr);
+              if (productData.sizes && Array.isArray(productData.sizes)) {
+                debug.info(
+                  `Found sizes in product data: ${productData.sizes.length} sizes`
+                );
+                for (const size of productData.sizes) {
+                  if (typeof size === "string") {
+                    sizes.push({
+                      text: size,
+                      selected: false,
+                      value: size,
+                    });
+                  } else if (typeof size === "object" && size !== null) {
+                    sizes.push({
+                      text:
+                        size.name ||
+                        size.label ||
+                        size.text ||
+                        size.value ||
+                        "",
+                      selected: size.selected || false,
+                      value: size.value || size.id || "",
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              debug.error(`Error parsing product data JSON: ${e}`);
+            }
+          }
+        } catch (e) {
+          debug.error(`Error processing script for sizes: ${e}`);
+        }
+      }
+    }
+  }
+
+  // Return deduplicated results
+  return deduplicateVariants(sizes);
+}
+
+// Make sure to find the sizes section in the product detection flow
+// and add this function call to improve size detection:
+
+// Add this to the extractVariantInfo function right after the "Trying generic size element detection" section:
+/*
+  if (variants.sizes.length === 0) {
+    debug.info("Using enhanced size detection techniques");
+    variants.sizes = enhancedSizeDetection();
+    debug.info(`Enhanced detection found ${variants.sizes.length} sizes`);
+  }
+*/
+
 function extractVariantInfo() {
   const variantTimer = debug.timing.start("Variant Extraction");
 
@@ -2375,6 +2577,11 @@ function extractVariantInfo() {
     debug.info(
       `Found ${sizePatternElements.length} potential generic size elements`
     );
+    if (variants.sizes.length === 0) {
+      debug.info("Using enhanced size detection techniques");
+      variants.sizes = enhancedSizeDetection();
+      debug.info(`Enhanced detection found ${variants.sizes.length} sizes`);
+    }
 
     for (const element of sizePatternElements) {
       variants.sizes.push({

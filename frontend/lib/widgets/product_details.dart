@@ -14,7 +14,8 @@ class ProductDetailsBottomSheet extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  State<ProductDetailsBottomSheet> createState() => _ProductDetailsBottomSheetState();
+  State<ProductDetailsBottomSheet> createState() =>
+      _ProductDetailsBottomSheetState();
 }
 
 class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
@@ -34,10 +35,11 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     setState(() {
       _isLoading = true;
     });
-    
+
     final inCart = await _cartService.isInCart(widget.productInfo);
-    final inFavorites = await _favoritesService.isInFavorites(widget.productInfo);
-    
+    final inFavorites =
+        await _favoritesService.isInFavorites(widget.productInfo);
+
     setState(() {
       _isInCart = inCart;
       _isInFavorites = inFavorites;
@@ -49,14 +51,14 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     setState(() {
       _isLoading = true;
     });
-    
+
     final success = await _cartService.addToCart(widget.productInfo);
-    
+
     setState(() {
       _isInCart = success;
       _isLoading = false;
     });
-    
+
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -79,14 +81,14 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     setState(() {
       _isLoading = true;
     });
-    
+
     final success = await _cartService.removeFromCart(widget.productInfo);
-    
+
     setState(() {
       _isInCart = !success;
       _isLoading = false;
     });
-    
+
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -103,12 +105,12 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       );
     }
   }
-  
+
   Future<void> _toggleFavorite() async {
     setState(() {
       _isLoading = true;
     });
-    
+
     bool success;
     if (_isInFavorites) {
       success = await _favoritesService.removeFromFavorites(widget.productInfo);
@@ -133,7 +135,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         );
       }
     }
-    
+
     setState(() {
       _isLoading = false;
     });
@@ -166,11 +168,11 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     // Enhanced filtering of nonsensical options
     final filteredOptions = options.where((option) {
       final String lowerText = option.text.toLowerCase().trim();
-      
+
       // Skip options that look like country codes, honorifics, or form fields
-      if (option.text.startsWith('+') || 
-          lowerText.contains('mr.') || 
-          lowerText.contains('ms.') || 
+      if (option.text.startsWith('+') ||
+          lowerText.contains('mr.') ||
+          lowerText.contains('ms.') ||
           lowerText.contains('mrs.') ||
           lowerText.contains('select') ||
           lowerText.contains('availability') ||
@@ -202,7 +204,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
           spacing: 8,
           runSpacing: 8,
           children: filteredOptions.map((option) {
-            // For colors, try to use the color value if it exists
+            // For colors
             if (title == 'Colors' &&
                 option.value != null &&
                 option.value!.startsWith('rgb')) {
@@ -278,7 +280,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                 ),
               );
             } else {
-              // For other variants or when no color value exists
+              // For sizes and other variants
               return InkWell(
                 onTap: () {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -418,8 +420,8 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                       style: const TextStyle(
                           fontWeight: FontWeight.bold, fontSize: 18)),
                   if (widget.productInfo.originalPrice != null)
-                    _buildInfoRow(
-                        'Original Price:', widget.productInfo.formattedOriginalPrice,
+                    _buildInfoRow('Original Price:',
+                        widget.productInfo.formattedOriginalPrice,
                         style: const TextStyle(
                             decoration: TextDecoration.lineThrough)),
                   const SizedBox(height: 16),
@@ -428,20 +430,21 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   if (widget.productInfo.variants != null &&
                       widget.productInfo.variants!.containsKey('colors') &&
                       widget.productInfo.variants!['colors']!.isNotEmpty)
-                    _buildVariantSection(
-                        context, 'Colors', widget.productInfo.variants!['colors']!),
+                    _buildVariantSection(context, 'Colors',
+                        widget.productInfo.variants!['colors']!),
 
                   // Size variants
                   if (widget.productInfo.variants != null &&
                       widget.productInfo.variants!.containsKey('sizes') &&
                       widget.productInfo.variants!['sizes']!.isNotEmpty)
-                    _buildVariantSection(
-                        context, 'Sizes', widget.productInfo.variants!['sizes']!),
-                  
+                    _buildVariantSection(context, 'Sizes',
+                        widget.productInfo.variants!['sizes']!),
+
                   // Description - only show if not empty and not null
                   if (widget.productInfo.description != null &&
                       widget.productInfo.description!.trim().isNotEmpty &&
-                      !widget.productInfo.description!.contains('schema.org')) ...[
+                      !widget.productInfo.description!
+                          .contains('schema.org')) ...[
                     const SizedBox(height: 16),
                     const Text('Description:',
                         style: TextStyle(fontWeight: FontWeight.bold)),

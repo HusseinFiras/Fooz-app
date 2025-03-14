@@ -1,3 +1,5 @@
+import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/data_service.dart';
@@ -18,15 +20,35 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final FocusNode _linkFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
 
-  // For retailer card animations
+  // Animation controllers
   late AnimationController _fadeController;
+  late AnimationController _floatingActionButtonController;
+  late AnimationController _searchBarAnimationController;
+  late AnimationController _pulseAnimationController;
+  
+  // Animations
   late Animation<double> _fadeAnimation;
+  late Animation<double> _scaleAnimation;
+  late Animation<Offset> _slideAnimation;
+  late Animation<double> _pulseAnimation;
 
+  // Staggered card animations
+  List<AnimationController> _cardAnimationControllers = [];
+  List<Animation<double>> _cardScaleAnimations = [];
+  List<Animation<double>> _cardOpacityAnimations = [];
+  
   // URL validation states
   bool _isProcessingUrl = false;
   bool _isValidUrl = false;
   bool _isInvalidUrl = false;
   String _retailerName = "";
+  bool _showFloatingSearchButton = false;
+  int _selectedCategoryIndex = 0;
+  final List<String> _categories = ['All Brands', 'Luxury', 'Fashion', 'Favorites'];
+
+  // For 3D tilt effect
+  double _cardTiltX = 0;
+  double _cardTiltY = 0;
 
   // Retailer background images
   final Map<String, String> _brandBackgrounds = {
@@ -44,43 +66,187 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
 
-    // Setup fade-in animation
+    // Main fade animation
     _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
 
     _fadeAnimation = CurvedAnimation(
       parent: _fadeController,
+      curve: Curves.easeOutCubic,
+    );
+
+    // Floating Action Button animation
+    _floatingActionButtonController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+
+    _scaleAnimation = CurvedAnimation(
+      parent: _floatingActionButtonController,
       curve: Curves.easeInOut,
     );
 
-    // Start the animations
-    _fadeController.forward();
-    
-    // Listen for changes in the text field to validate URL as the user types
+    // Search bar slide animation
+    _searchBarAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, -0.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _searchBarAnimationController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    // Pulse animation for URL validation
+    _pulseAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+
+    _pulseAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.07,
+    ).animate(
+      CurvedAnimation(
+        parent: _pulseAnimationController,
+        curve: Curves.elasticInOut,
+      ),
+    );
+
+    // Initialization
+    _scrollController.addListener(_handleScroll);
     _linkController.addListener(_validateUrlInput);
+    
+    // Start animations in sequence
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _fadeController.forward();
+    });
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      _searchBarAnimationController.forward();
+    });
+
+    // Initialize card animations with staggered timing
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeCardAnimations();
+    });
+  }
+
+  void _initializeCardAnimations() {
+    // Clear any existing animations
+    for (var controller in _cardAnimationControllers) {
+      controller.dispose();
+    }
+    
+    _cardAnimationControllers = [];
+    _cardScaleAnimations = [];
+    _cardOpacityAnimations = [];
+
+    // Create animations for each card with staggered delays
+    for (int i = 0; i < _dataService.retailSites.length; i++) {
+      final cardController = AnimationController(
+        duration: const Duration(milliseconds: 800),
+        vsync: this,
+      );
+      
+      final scaleAnimation = Tween<double>(
+        begin: 0.8,
+        end: 1.0,
+      ).animate(CurvedAnimation(
+        parent: cardController,
+        curve: Curves.easeOutCubic,
+      ));
+      
+      final opacityAnimation = Tween<double>(
+        begin: 0.0,
+        end: 1.0,
+      ).animate(CurvedAnimation(
+        parent: cardController,
+        curve: Curves.easeInOut,
+      ));
+      
+      _cardAnimationControllers.add(cardController);
+      _cardScaleAnimations.add(scaleAnimation);
+      _cardOpacityAnimations.add(opacityAnimation);
+      
+      // Start with staggered timing
+      Future.delayed(Duration(milliseconds: 600 + (i * 70)), () {
+        if (mounted) {
+          cardController.forward();
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_handleScroll);
     _linkController.removeListener(_validateUrlInput);
     _linkController.dispose();
     _linkFocusNode.dispose();
-    _fadeController.dispose();
     _scrollController.dispose();
+    _fadeController.dispose();
+    _floatingActionButtonController.dispose();
+    _searchBarAnimationController.dispose();
+    _pulseAnimationController.dispose();
+    
+    for (var controller in _cardAnimationControllers) {
+      controller.dispose();
+    }
+    
     super.dispose();
   }
 
+  void _handleScroll() {
+    final showButton = _scrollController.offset > 100;
+    if (showButton != _showFloatingSearchButton) {
+      setState(() {
+        _showFloatingSearchButton = showButton;
+      });
+
+      if (showButton) {
+        _floatingActionButtonController.forward();
+      } else {
+        _floatingActionButtonController.reverse();
+      }
+    }
+  }
+
   void _navigateToSite(int index) {
-    // Add haptic feedback
-    HapticFeedback.lightImpact();
+    // Add haptic feedback with different patterns based on brand type
+    if (_dataService.retailSites[index]['name'] == 'Gucci' || 
+        _dataService.retailSites[index]['name'] == 'Cartier') {
+      HapticFeedback.mediumImpact(); // Premium feel for luxury brands
+    } else {
+      HapticFeedback.lightImpact(); // Standard feedback for other brands
+    }
 
     // Navigate to the WebView screen
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => WebViewScreen(initialSiteIndex: index),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => WebViewScreen(
+          initialSiteIndex: index,
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(1.0, 0.0);
+          const end = Offset.zero;
+          const curve = Curves.easeInOutCubic;
+          
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          var offsetAnimation = animation.drive(tween);
+          
+          return SlideTransition(
+            position: offsetAnimation,
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 400),
       ),
     );
   }
@@ -95,6 +261,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         _isValidUrl = false;
         _isInvalidUrl = false;
         _retailerName = "";
+        _pulseAnimationController.reset();
       });
       return;
     }
@@ -108,9 +275,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final result = _urlHandler.processUrl(text);
     
     setState(() {
+      bool wasValid = _isValidUrl;
       _isValidUrl = result['isValid'];
       _isInvalidUrl = !result['isValid'] && text.isNotEmpty;
       _retailerName = result['retailerName'] ?? "";
+      
+      // Trigger pulse animation if validation state changed to valid
+      if (!wasValid && _isValidUrl) {
+        _pulseAnimationController.reset();
+        _pulseAnimationController.forward();
+      }
     });
   }
 
@@ -123,6 +297,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
     
     final url = _linkController.text.trim();
+    
+    // Add a satisfying haptic feedback
+    HapticFeedback.mediumImpact();
     
     // Clear focus and collapse keyboard
     _linkFocusNode.unfocus();
@@ -137,6 +314,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           content: Text(result['errorMessage']),
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 2),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          backgroundColor: Colors.redAccent,
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () {},
+          ),
         ),
       );
       setState(() {
@@ -150,20 +336,47 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // Show a success message with the retailer name
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Opening ${result['retailerName']}...'),
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_outline, color: Colors.white),
+            const SizedBox(width: 10),
+            Text('Opening ${result['retailerName']}...'),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 1),
+        backgroundColor: Colors.green[700],
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
       ),
     );
     
     // Navigate to WebView with the processed URL
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => WebViewScreen(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => WebViewScreen(
           initialSiteIndex: result['retailerIndex'],
           initialUrl: result['normalizedUrl'],
         ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(0.0, 0.3);
+          const end = Offset.zero;
+          const curve = Curves.easeOutCubic;
+          
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          var offsetAnimation = animation.drive(tween);
+          
+          return SlideTransition(
+            position: offsetAnimation,
+            child: FadeTransition(
+              opacity: animation,
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 400),
       ),
     ).then((_) {
       // Reset processing state when returning from WebView
@@ -174,294 +387,687 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
   }
 
+  void _updateCardTilt(double dx, double dy, Size size) {
+    // Calculate tilt angles based on touch position
+    setState(() {
+      _cardTiltX = (dy / size.height - 0.5) * 10; // -5 to 5 degrees
+      _cardTiltY = -(dx / size.width - 0.5) * 10; // -5 to 5 degrees
+    });
+  }
+
+  void _resetCardTilt() {
+    setState(() {
+      _cardTiltX = 0;
+      _cardTiltY = 0;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: ListView(
-            controller: _scrollController,
-            physics: const BouncingScrollPhysics(),
-            padding: EdgeInsets.zero,
-            children: [
-              // Add some top padding to replace the AppBar
-              const SizedBox(height: 16),
-              
-              // Search field
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: _isValidUrl 
-                        ? Colors.green.withOpacity(0.1) 
-                        : _isInvalidUrl 
-                            ? Colors.red.withOpacity(0.1) 
-                            : Colors.grey[100],
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                        spreadRadius: 0,
-                      ),
-                    ],
-                    border: Border.all(
-                      color: _isValidUrl 
-                          ? Colors.green 
-                          : _isInvalidUrl 
-                              ? Colors.red 
-                              : Colors.transparent,
-                      width: 1.0,
-                    ),
+      body: Stack(
+        children: [
+          // Background with subtle gradient
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.grey[50]!,
+                  Colors.grey[100]!,
+                  Colors.grey[50]!,
+                ],
+              ),
+            ),
+          ),
+          
+          // Decorative circles in the background
+          Positioned(
+            top: -100,
+            right: -100,
+            child: Container(
+              width: 200,
+              height: 200,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Theme.of(context).colorScheme.secondary.withOpacity(0.1),
+              ),
+            ),
+          ),
+          
+          Positioned(
+            bottom: -80,
+            left: -50,
+            child: Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+              ),
+            ),
+          ),
+          
+          // Main content
+          SafeArea(
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: CustomScrollView(
+                controller: _scrollController,
+                physics: const BouncingScrollPhysics(),
+                slivers: [
+                  // Top padding
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: 16),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: _linkController,
-                        focusNode: _linkFocusNode,
-                        decoration: InputDecoration(
-                          hintText: 'Paste product URL',
-                          border: InputBorder.none,
-                          prefixIcon: Icon(
-                            Icons.link,
-                            color: _isValidUrl 
-                                ? Colors.green 
-                                : _isInvalidUrl 
-                                    ? Colors.red 
-                                    : null,
-                          ),
-                          suffixIcon: _isProcessingUrl
-                              ? Container(
-                                  margin: const EdgeInsets.all(10),
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      _isValidUrl ? Colors.green : Theme.of(context).primaryColor
+                  
+                  // Search bar with animation
+                  SliverToBoxAdapter(
+                    child: SlideTransition(
+                      position: _slideAnimation,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        child: AnimatedBuilder(
+                          animation: _pulseAnimation,
+                          builder: (context, child) {
+                            return Transform.scale(
+                              scale: _isValidUrl ? _pulseAnimation.value : 1.0,
+                              child: child,
+                            );
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: _isValidUrl 
+                                  ? Colors.green.withOpacity(0.1) 
+                                  : _isInvalidUrl 
+                                      ? Colors.red.withOpacity(0.1) 
+                                      : Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.07),
+                                  blurRadius: 16,
+                                  spreadRadius: 0,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                              border: Border.all(
+                                color: _isValidUrl 
+                                    ? Colors.green 
+                                    : _isInvalidUrl 
+                                        ? Colors.red 
+                                        : Colors.transparent,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextField(
+                                  controller: _linkController,
+                                  focusNode: _linkFocusNode,
+                                  decoration: InputDecoration(
+                                    hintText: 'Paste product URL',
+                                    hintStyle: TextStyle(
+                                      color: Colors.grey[400],
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                    border: InputBorder.none,
+                                    prefixIcon: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 300),
+                                      child: Icon(
+                                        Icons.link,
+                                        color: _isValidUrl 
+                                            ? Colors.green 
+                                            : _isInvalidUrl 
+                                                ? Colors.red 
+                                                : Theme.of(context).colorScheme.secondary,
+                                      ),
+                                    ),
+                                    suffixIcon: _isProcessingUrl
+                                        ? Container(
+                                            margin: const EdgeInsets.all(10),
+                                            width: 24,
+                                            height: 24,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor: AlwaysStoppedAnimation<Color>(
+                                                _isValidUrl 
+                                                    ? Colors.green 
+                                                    : Theme.of(context).colorScheme.secondary,
+                                              ),
+                                            ),
+                                          )
+                                        : AnimatedContainer(
+                                            duration: const Duration(milliseconds: 300),
+                                            child: IconButton(
+                                              icon: Icon(
+                                                _isValidUrl 
+                                                    ? Icons.check_circle 
+                                                    : Icons.search,
+                                                size: 26,
+                                              ),
+                                              color: _isValidUrl 
+                                                  ? Colors.green 
+                                                  : _isInvalidUrl 
+                                                      ? Colors.red 
+                                                      : Theme.of(context).colorScheme.secondary,
+                                              onPressed: _processUrl,
+                                              splashRadius: 24,
+                                            ),
+                                          ),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      vertical: 18,
+                                      horizontal: 16,
                                     ),
                                   ),
-                                )
-                              : IconButton(
-                                  icon: Icon(
-                                    _isValidUrl ? Icons.check_circle : Icons.search,
-                                    color: _isValidUrl 
-                                        ? Colors.green 
-                                        : _isInvalidUrl 
-                                            ? Colors.red 
-                                            : null,
+                                  onChanged: (_) => _validateUrlInput(),
+                                  onSubmitted: (_) => _processUrl(),
+                                  enabled: !_isProcessingUrl,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w400,
                                   ),
-                                  onPressed: _processUrl,
                                 ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 16,
-                            horizontal: 16,
-                          ),
-                        ),
-                        onChanged: (_) => _validateUrlInput(),
-                        onSubmitted: (_) => _processUrl(),
-                        enabled: !_isProcessingUrl,
-                      ),
-                      // Show retailer name if URL is valid
-                      if (_isValidUrl && _retailerName.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
-                          child: Text(
-                            'Found: $_retailerName',
-                            style: TextStyle(
-                              color: Colors.green[700],
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                                
+                                // Show retailer name with animation if URL is valid
+                                AnimatedCrossFade(
+                                  firstChild: const SizedBox.shrink(),
+                                  secondChild: Padding(
+                                    padding: const EdgeInsets.only(left: 16, right: 16, bottom: 12),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.check_circle_outline,
+                                          size: 14,
+                                          color: Colors.green,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Found: $_retailerName',
+                                          style: const TextStyle(
+                                            color: Colors.green,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  crossFadeState: _isValidUrl && _retailerName.isNotEmpty
+                                      ? CrossFadeState.showSecond
+                                      : CrossFadeState.showFirst,
+                                  duration: const Duration(milliseconds: 300),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                    ],
-                  ),
-                ),
-              ),
-              
-              // Title section
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Select a Store',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w300,
-                        color: Colors.black87,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Browse your favorite luxury retailers',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.black54,
+                  ),
+                  
+                  // Title section with animation
+                  SliverToBoxAdapter(
+                    child: FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Discover Luxury',
+                              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.w300,
+                                color: Colors.black87,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Browse your favorite luxury and fashion retailers',
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: Colors.black54,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  // Category selector with horizontal scroll
+                  SliverToBoxAdapter(
+                    child: FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 16, 0, 16),
+                        child: SizedBox(
+                          height: 40,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: _categories.length,
+                            physics: const BouncingScrollPhysics(),
+                            itemBuilder: (context, index) {
+                              final isSelected = _selectedCategoryIndex == index;
+                              return GestureDetector(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(() {
+                                    _selectedCategoryIndex = index;
+                                  });
+                                  
+                                  // Re-initialize card animations when category changes
+                                  _initializeCardAnimations();
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 300),
+                                  margin: const EdgeInsets.only(right: 12),
+                                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                                  decoration: BoxDecoration(
+                                    color: isSelected 
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.white,
+                                    borderRadius: BorderRadius.circular(20),
+                                    boxShadow: isSelected 
+                                        ? [
+                                            BoxShadow(
+                                              color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                                              blurRadius: 8,
+                                              offset: const Offset(0, 2),
+                                            )
+                                          ]
+                                        : [
+                                            BoxShadow(
+                                              color: Colors.black.withOpacity(0.05),
+                                              blurRadius: 4,
+                                              offset: const Offset(0, 2),
+                                            )
+                                          ],
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      _categories[index],
+                                      style: TextStyle(
+                                        color: isSelected ? Colors.white : Colors.black54,
+                                        fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  // Retailer cards with staggered animations
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final site = _dataService.retailSites[index];
+                          
+                          // Skip items based on selected category
+                          if (_selectedCategoryIndex == 1 && 
+                              !['Gucci', 'Cartier', 'Swarovski', 'Miu Miu'].contains(site['name'])) {
+                            return const SizedBox.shrink();
+                          }
+                          
+                          if (_selectedCategoryIndex == 2 && 
+                              !['Zara', 'Stradivarius', 'Guess', 'Mango', 'Bershka'].contains(site['name'])) {
+                            return const SizedBox.shrink();
+                          }
+                          
+                          if (_selectedCategoryIndex == 3 && 
+                              !['Gucci', 'Zara', 'Cartier'].contains(site['name'])) {
+                            return const SizedBox.shrink();
+                          }
+                          
+                          // Check if animations are initialized
+                          if (index >= _cardAnimationControllers.length) {
+                            return const SizedBox.shrink();
+                          }
+                          
+                          return AnimatedBuilder(
+                            animation: _cardAnimationControllers[index],
+                            builder: (context, child) {
+                              return Opacity(
+                                opacity: _cardOpacityAnimations[index].value,
+                                child: Transform.scale(
+                                  scale: _cardScaleAnimations[index].value,
+                                  child: child,
+                                ),
+                              );
+                            },
+                            child: _buildEnhancedRetailerCard(site, index),
+                          );
+                        },
+                        childCount: _dataService.retailSites.length,
+                      ),
+                    ),
+                  ),
+                  
+                  // Bottom padding
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: 30),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          
+          // Floating search button that appears when scrolling
+          Positioned(
+            bottom: 20,
+            right: 20,
+            child: ScaleTransition(
+              scale: _scaleAnimation,
+              child: AnimatedOpacity(
+                opacity: _showFloatingSearchButton ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: FloatingActionButton(
+                  onPressed: () {
+                    // Scroll back to top with animation
+                    _scrollController.animateTo(
+                      0,
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.easeOutCubic,
+                    );
+                    
+                    // Focus on search bar
+                    Future.delayed(const Duration(milliseconds: 300), () {
+                      _linkFocusNode.requestFocus();
+                    });
+                  },
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 4,
+                  mini: false,
+                  child: const Icon(Icons.search),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEnhancedRetailerCard(Map<String, String> site, int index) {
+    final name = site['name']!;
+    final bool isLuxuryBrand = ['Gucci', 'Cartier', 'Swarovski', 'Miu Miu'].contains(name);
+    
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 26),
+      child: GestureDetector(
+        onTapDown: (details) {
+          // Calculate the relative position for 3D effect
+          final size = context.size ?? Size(0, 0);
+          _updateCardTilt(details.localPosition.dx, details.localPosition.dy, size);
+        },
+        onTapUp: (_) => _resetCardTilt(),
+        onTapCancel: () => _resetCardTilt(),
+        onTap: () => _navigateToSite(index),
+        child: Transform(
+          transform: Matrix4.identity()
+            ..setEntry(3, 2, 0.001) // perspective
+            ..rotateX(_cardTiltX * (math.pi / 180))
+            ..rotateY(_cardTiltY * (math.pi / 180)),
+          alignment: Alignment.center,
+          child: Hero(
+            tag: 'retailer_card_$index',
+            child: Container(
+              height: 170,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 10,
+                    spreadRadius: 0,
+                    offset: const Offset(0, 5),
+                  ),
+                  BoxShadow(
+                    color: isLuxuryBrand 
+                        ? Theme.of(context).colorScheme.secondary.withOpacity(0.3)
+                        : Colors.transparent,
+                    blurRadius: 12,
+                    spreadRadius: -2,
+                    offset: const Offset(0, 7),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Background image with blur or gradient
+                    _brandBackgrounds.containsKey(name)
+                        ? ShaderMask(
+                            shaderCallback: (rect) {
+                              return LinearGradient(
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                                colors: [
+                                  Colors.black.withOpacity(0.9),
+                                  Colors.black.withOpacity(0.7),
+                                  Colors.black.withOpacity(0.5),
+                                ],
+                              ).createShader(rect);
+                            },
+                            blendMode: BlendMode.darken,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                image: DecorationImage(
+                                  image: AssetImage(_brandBackgrounds[name]!),
+                                  fit: BoxFit.cover,
+                                  alignment: Alignment.center,
+                                ),
+                              ),
+                              ),
+                          )
+                        : Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Theme.of(context).colorScheme.primary,
+                                  Theme.of(context).colorScheme.primary.withOpacity(0.8),
+                                  Theme.of(context).colorScheme.primary.withOpacity(0.6),
+                                ],
+                              ),
+                            ),
+                          ),
+                    
+                    // Subtle glass effect overlay
+                    Positioned.fill(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(
+                          sigmaX: 0.5,
+                          sigmaY: 0.5,
+                        ),
+                        child: Container(
+                          color: Colors.transparent,
+                        ),
+                      ),
+                    ),
+                    
+                    // Content overlay with gradient
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            Colors.black.withOpacity(0.7),
+                            Colors.black.withOpacity(0.5),
+                            Colors.black.withOpacity(0.2),
+                          ],
+                        ),
+                      ),
+                    ),
+                    
+                    // Brand logo or first letter badge (positioned in top right corner)
+                    Positioned(
+                      top: 16,
+                      right: 16,
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.2),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.3),
+                            width: 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Text(
+                            name[0],
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    
+                    // Content - Store name and Visit button
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Store name
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name.toUpperCase(),
+                                style: const TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: 1.5,
+                                  shadows: [
+                                    Shadow(
+                                      color: Colors.black54,
+                                      offset: Offset(0, 2),
+                                      blurRadius: 4,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              
+                              // Category tag for luxury brands
+                              if (isLuxuryBrand)
+                                Container(
+                                  margin: const EdgeInsets.only(top: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.secondary.withOpacity(0.7),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'LUXURY',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w500,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          
+                          // Visit button
+                          Container(
+                            margin: const EdgeInsets.only(top: 10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'EXPLORE',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    letterSpacing: 1,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(
+                                  Icons.arrow_forward,
+                                  size: 16,
+                                  color: Colors.white,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    // Shimmer effect on hover (subtle shine)
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            stops: const [0, 0.3, 0.6, 1],
+                            colors: [
+                              Colors.white.withOpacity(0.1),
+                              Colors.white.withOpacity(0),
+                              Colors.white.withOpacity(0),
+                              Colors.white.withOpacity(0.1),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              
-              // Retailer list
-              ListView.builder(
-                physics: const NeverScrollableScrollPhysics(),
-                shrinkWrap: true,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                itemCount: _dataService.retailSites.length,
-                itemBuilder: (context, index) {
-                  final site = _dataService.retailSites[index];
-                  
-                  // Create a staggered animation effect
-                  final staggeredDelay = Duration(milliseconds: 50 * index);
-                  Future.delayed(staggeredDelay, () {
-                    if (_fadeController.isCompleted) {
-                      // Only apply the additional animation if the main fade is done
-                    }
-                  });
-                  
-                  return _buildRetailerCard(site, index);
-                },
-              ),
-              
-              // Add some bottom padding
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRetailerCard(Map<String, String> site, int index) {
-    final name = site['name']!;
-    
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: 0.95, end: 1.0),
-      duration: Duration(milliseconds: 300 + (index * 50)),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) {
-        return Transform.scale(
-          scale: value,
-          child: child,
-        );
-      },
-      child: Container(
-        height: 140,
-        margin: const EdgeInsets.only(bottom: 24),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Background image or gradient
-              _brandBackgrounds.containsKey(name)
-                  ? Image.asset(
-                      _brandBackgrounds[name]!,
-                      fit: BoxFit.cover,
-                    )
-                  : Container(
-                      decoration: BoxDecoration(
-                        color: index % 2 == 0 ? Colors.grey[200] : Colors.white,
-                      ),
-                    ),
-              
-              // Overlay to ensure text readability
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      Colors.black.withOpacity(0.5),
-                      Colors.black.withOpacity(0.3),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-              
-              // Content - Store name and Visit button
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => _navigateToSite(index),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 20),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        // Store name - positioned at top
-                        Align(
-                          alignment: Alignment.topLeft,
-                          child: Text(
-                            name.toUpperCase(),
-                            style: TextStyle(
-                              fontSize: 34,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.5,
-                              color: _brandBackgrounds.containsKey(name)
-                                  ? Colors.white
-                                  : Colors.black,
-                            ),
-                          ),
-                        ),
-                        
-                        // Visit button - positioned at bottom right
-                        Align(
-                          alignment: Alignment.bottomRight,
-                          child: Container(
-                            margin: const EdgeInsets.only(top: 10),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.3),
-                                  width: 0.5,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    'VISIT',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w400,
-                                      fontSize: 12,
-                                      letterSpacing: 0.5,
-                                      color: _brandBackgrounds.containsKey(name)
-                                          ? Colors.white
-                                          : Colors.black.withOpacity(0.7),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Icon(
-                                    Icons.arrow_forward,
-                                    size: 12,
-                                    color: _brandBackgrounds.containsKey(name)
-                                        ? Colors.white
-                                        : Colors.black.withOpacity(0.7),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
