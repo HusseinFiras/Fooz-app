@@ -118,7 +118,7 @@ class MyApp extends StatelessWidget {
           seedColor: const Color(0xFF1E1E1E),
           brightness: Brightness.light,
           primary: const Color(0xFF1E1E1E),
-          secondary: const Color(0xFFE0B872), // Gold accent
+          secondary: const Color(0xFFFF80AB), // Gold accent
           tertiary: const Color(0xFF6B6B6B),
         ),
         // Typography
@@ -169,7 +169,7 @@ class MyApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: const Color(0xFFF8F8F8),
         navigationBarTheme: NavigationBarThemeData(
-          indicatorColor: const Color(0xFFE0B872).withOpacity(0.2),
+          indicatorColor: const Color.fromARGB(255, 244, 29, 136).withOpacity(0.2),
         ),
       ),
       home: const MainApp(), // MainApp is now properly imported
