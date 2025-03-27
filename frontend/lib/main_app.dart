@@ -1,9 +1,11 @@
 // lib/main_app.dart
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
+import 'screens/brands_screen.dart';
 import 'screens/cart_screen.dart';
-import 'screens/settings_screen.dart';
 import 'screens/favorites_screen.dart';
+import 'screens/settings_screen.dart';
+import 'constants/theme_constants.dart';
 
 class MainApp extends StatefulWidget {
   const MainApp({Key? key}) : super(key: key);
@@ -18,6 +20,7 @@ class _MainAppState extends State<MainApp> {
   // Define the screens that will appear in the bottom navigation
   final List<Widget> _screens = const [
     HomePage(),
+    BrandsScreen(),
     CartScreen(),
     FavoritesScreen(),
     SettingsScreen(),
@@ -36,7 +39,7 @@ class _MainAppState extends State<MainApp> {
       // Wrap NavigationBar with SafeArea to respect device safe area
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          // Add shadow for better visual separation
+          // Add subtle shadow for better visual separation
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.05),
@@ -52,30 +55,68 @@ class _MainAppState extends State<MainApp> {
           bottom: true,
           child: NavigationBar(
             height: 65, // Explicitly set height for consistency
+            backgroundColor: Colors.white,
             selectedIndex: _selectedIndex,
             onDestinationSelected: _onItemTapped,
-            destinations: const [
+            labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+            destinations: [
               NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
+                icon: Icon(
+                  Icons.home_outlined, 
+                  color: _selectedIndex == 0 ? LuxuryTheme.primaryRosegold : Colors.grey,
+                ),
+                selectedIcon: Icon(
+                  Icons.home,
+                  color: LuxuryTheme.primaryRosegold,
+                ),
                 label: 'Home',
               ),
               NavigationDestination(
-                icon: Icon(Icons.shopping_cart_outlined),
-                selectedIcon: Icon(Icons.shopping_cart),
+                icon: Icon(
+                  Icons.shopping_bag_outlined,
+                  color: _selectedIndex == 1 ? LuxuryTheme.primaryRosegold : Colors.grey,
+                ),
+                selectedIcon: Icon(
+                  Icons.shopping_bag,
+                  color: LuxuryTheme.primaryRosegold,
+                ),
+                label: 'Brands',
+              ),
+              NavigationDestination(
+                icon: Icon(
+                  Icons.shopping_cart_outlined,
+                  color: _selectedIndex == 2 ? LuxuryTheme.primaryRosegold : Colors.grey,
+                ),
+                selectedIcon: Icon(
+                  Icons.shopping_cart,
+                  color: LuxuryTheme.primaryRosegold,
+                ),
                 label: 'Cart',
               ),
               NavigationDestination(
-                icon: Icon(Icons.favorite_outline),
-                selectedIcon: Icon(Icons.favorite),
+                icon: Icon(
+                  Icons.favorite_outline,
+                  color: _selectedIndex == 3 ? LuxuryTheme.primaryRosegold : Colors.grey,
+                ),
+                selectedIcon: Icon(
+                  Icons.favorite,
+                  color: LuxuryTheme.primaryRosegold,
+                ),
                 label: 'Favorites',
               ),
               NavigationDestination(
-                icon: Icon(Icons.settings_outlined),
-                selectedIcon: Icon(Icons.settings),
+                icon: Icon(
+                  Icons.settings_outlined,
+                  color: _selectedIndex == 4 ? LuxuryTheme.primaryRosegold : Colors.grey,
+                ),
+                selectedIcon: Icon(
+                  Icons.settings,
+                  color: LuxuryTheme.primaryRosegold,
+                ),
                 label: 'Settings',
               ),
             ],
+            indicatorColor: LuxuryTheme.accentLightBlush.withOpacity(0.5),
           ),
         ),
       ),

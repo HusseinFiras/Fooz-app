@@ -1,6 +1,8 @@
+// widgets/homescreenwidgets/victorias_secret_banner.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/data_service.dart';
+import '../../constants/theme_constants.dart'; // Import our theme constants
 
 class VictoriasSecretBanner extends StatelessWidget {
   final Function(int) navigateToSite;
@@ -14,31 +16,25 @@ class VictoriasSecretBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Muted pink color palette that matches the app design
-    final Color mutedPink = Color(0xFFF8E1E7);        // Background color (keeping as is)
-    final Color primaryPink = Color.fromARGB(255, 239, 126, 162);      // Muted pink for button and heading
-    final Color textPink = Color.fromARGB(255, 239, 126, 162);         // Darker muted pink for text
+    // Updated colors to match our theme
+    final Color bgColor = LuxuryTheme.accentLightBlush;      // Soft blush background
+    final Color accentColor = LuxuryTheme.primaryRosegold;   // Rosegold for buttons and accents
+    final Color textColor = LuxuryTheme.textCharcoal;        // Charcoal for text
 
     return Container(
       height: 350,
       margin: EdgeInsets.symmetric(horizontal: 8, vertical: 16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 4,
-            offset: Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(LuxuryTheme.largeCardRadius),
+        boxShadow: LuxuryTheme.softShadow,
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(LuxuryTheme.largeCardRadius),
         child: Stack(
           children: [
             Positioned.fill(
               child: Container(
-                color: mutedPink,
+                color: bgColor,
               ),
             ),
             Row(
@@ -51,14 +47,15 @@ class VictoriasSecretBanner extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
+                        // "FOZ PICKS" label with rosegold background
                         Container(
                           padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: primaryPink,
+                            gradient: LuxuryTheme.rosegoldGradient,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            'FOZ PICKS',
+                            'FOOZ PICKS',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 10,
@@ -68,14 +65,15 @@ class VictoriasSecretBanner extends StatelessWidget {
                           ),
                         ),
                         SizedBox(height: 16),
+                        // Brand name with serif font
                         Text(
                           "Victoria's Secret",
                           style: TextStyle(
-                            fontFamily: 'Montserrat',
+                            fontFamily: 'DM Serif Display',
                             fontSize: 26,
                             fontWeight: FontWeight.w600,
                             fontStyle: FontStyle.italic,
-                            color: textPink,
+                            color: accentColor,
                             height: 1.2,
                           ),
                         ),
@@ -83,13 +81,15 @@ class VictoriasSecretBanner extends StatelessWidget {
                         Text(
                           'Luxe Loungewear & Iconic Fragrances',
                           style: TextStyle(
-                            color: Colors.black87,
+                            fontFamily: 'Lato',
+                            color: textColor,
                             fontSize: 14,
                             height: 1.4,
                           ),
                           maxLines: 2,
                         ),
                         SizedBox(height: 24),
+                        // Shop button with rosegold gradient
                         Container(
                           width: 160,
                           height: 44,
@@ -104,20 +104,35 @@ class VictoriasSecretBanner extends StatelessWidget {
                               }
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: primaryPink,
+                              backgroundColor: Colors.transparent,
                               foregroundColor: Colors.white,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(22),
                               ),
                               padding: EdgeInsets.zero,
-                              elevation: 2,
+                              elevation: 0,
                             ),
-                            child: Center(
-                              child: Text(
-                                "SHOP COLLECTION",
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                gradient: LuxuryTheme.rosegoldGradient,
+                                borderRadius: BorderRadius.circular(22),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: accentColor.withOpacity(0.3),
+                                    offset: Offset(0, 2),
+                                    blurRadius: 6,
+                                  ),
+                                ],
+                              ),
+                              child: Container(
+                                height: 44,
+                                alignment: Alignment.center,
+                                child: Text(
+                                  "SHOP COLLECTION",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ),
@@ -131,8 +146,8 @@ class VictoriasSecretBanner extends StatelessWidget {
                   flex: 5,
                   child: ClipRRect(
                     borderRadius: BorderRadius.only(
-                      topRight: Radius.circular(16),
-                      bottomRight: Radius.circular(16),
+                      topRight: Radius.circular(LuxuryTheme.largeCardRadius),
+                      bottomRight: Radius.circular(LuxuryTheme.largeCardRadius),
                     ),
                     child: Image.asset(
                       'assets/images/vs_product.png',

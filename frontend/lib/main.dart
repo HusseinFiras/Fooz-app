@@ -2,8 +2,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart'; // Import Google Fonts
+import 'constants/theme_constants.dart';
 import 'utils/debug_utils.dart';
-import 'main_app.dart'; // Import the MainApp class
+import 'main_app.dart';
 
 /// Initialize clean debugging throughout the app
 void initializeDebugging() {
@@ -96,7 +98,7 @@ void main() {
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: Colors.black,
+      systemNavigationBarColor: LuxuryTheme.textCharcoal,
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
@@ -113,66 +115,89 @@ class MyApp extends StatelessWidget {
       title: 'Luxury Price Checker',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        // Elegant color scheme
+        // Elegant color scheme using our new theme constants
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1E1E1E),
+          seedColor: LuxuryTheme.primaryRosegold,
           brightness: Brightness.light,
-          primary: const Color(0xFF1E1E1E),
-          secondary: const Color(0xFFFF80AB), // Gold accent
-          tertiary: const Color(0xFF6B6B6B),
+          primary: LuxuryTheme.primaryRosegold,
+          secondary: LuxuryTheme.lightRosegold,
+          tertiary: LuxuryTheme.accentBlush,
+          onPrimary: Colors.white,
+          onSecondary: Colors.white,
+          background: LuxuryTheme.neutralOffWhite,
+          surface: Colors.white,
         ),
-        // Typography
-        fontFamily: 'Montserrat',
-        textTheme: const TextTheme(
-          displayLarge: TextStyle(fontWeight: FontWeight.w300),
-          displayMedium: TextStyle(fontWeight: FontWeight.w300),
-          displaySmall: TextStyle(fontWeight: FontWeight.w300),
-          headlineMedium: TextStyle(fontWeight: FontWeight.w400),
-          headlineSmall: TextStyle(fontWeight: FontWeight.w500),
-          titleLarge: TextStyle(fontWeight: FontWeight.w500),
-          bodyLarge:
-              TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.w400),
-          bodyMedium:
-              TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.w400),
+        
+        // Typography - Using Google Fonts
+        fontFamily: GoogleFonts.lato().fontFamily,
+        textTheme: TextTheme(
+          displayLarge: GoogleFonts.dmSerifDisplay(fontWeight: FontWeight.w300),
+          displayMedium: GoogleFonts.dmSerifDisplay(fontWeight: FontWeight.w300),
+          displaySmall: GoogleFonts.dmSerifDisplay(fontWeight: FontWeight.w300),
+          headlineMedium: GoogleFonts.dmSerifDisplay(fontWeight: FontWeight.w400),
+          headlineSmall: GoogleFonts.dmSerifDisplay(fontWeight: FontWeight.w500),
+          titleLarge: GoogleFonts.dmSerifDisplay(fontWeight: FontWeight.w500),
+          bodyLarge: GoogleFonts.lato(fontWeight: FontWeight.w400),
+          bodyMedium: GoogleFonts.lato(fontWeight: FontWeight.w400),
         ),
+        
         // UI elements
-        appBarTheme: const AppBarTheme(
+        appBarTheme: AppBarTheme(
           backgroundColor: Colors.white,
-          foregroundColor: Color(0xFF1E1E1E),
+          foregroundColor: LuxuryTheme.textCharcoal,
           elevation: 0,
           centerTitle: true,
-          titleTextStyle: TextStyle(
-            fontFamily: 'Montserrat',
+          titleTextStyle: GoogleFonts.dmSerifDisplay(
             fontWeight: FontWeight.w500,
-            fontSize: 18,
-            color: Color(0xFF1E1E1E),
+            fontSize: 20,
+            color: LuxuryTheme.textCharcoal,
           ),
-          iconTheme: IconThemeData(color: Color(0xFF1E1E1E)),
+          iconTheme: const IconThemeData(color: LuxuryTheme.textCharcoal),
         ),
+        
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF1E1E1E),
+            backgroundColor: LuxuryTheme.primaryRosegold,
             foregroundColor: Colors.white,
             elevation: 0,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(LuxuryTheme.buttonRadius),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           ),
         ),
+        
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: LuxuryTheme.primaryRosegold,
+            side: const BorderSide(color: LuxuryTheme.primaryRosegold),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(LuxuryTheme.buttonRadius),
+            ),
+          ),
+        ),
+        
         cardTheme: CardTheme(
           elevation: 4,
           shadowColor: Colors.black12,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(LuxuryTheme.cardRadius),
           ),
         ),
-        scaffoldBackgroundColor: const Color(0xFFF8F8F8),
+        
+        scaffoldBackgroundColor: LuxuryTheme.neutralOffWhite,
+        
         navigationBarTheme: NavigationBarThemeData(
-          indicatorColor: const Color.fromARGB(255, 244, 29, 136).withOpacity(0.2),
+          indicatorColor: LuxuryTheme.primaryRosegold.withOpacity(0.2),
+          labelTextStyle: MaterialStateProperty.all(
+            GoogleFonts.lato(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ),
       ),
-      home: const MainApp(), // MainApp is now properly imported
+      home: const MainApp(),
     );
   }
 }

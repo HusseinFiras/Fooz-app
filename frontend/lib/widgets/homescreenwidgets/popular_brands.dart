@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/data_service.dart';
 import '../../screens/webview_screen.dart';
+import '../../constants/theme_constants.dart';
 
 class PopularBrandsSection extends StatelessWidget {
   final Function(int) navigateToSite;
@@ -80,6 +81,32 @@ class PopularBrandsSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Add elegant header for Popular Brands section with decorative line
+          Padding(
+            padding: EdgeInsets.only(left: 16, right: 16, bottom: 16),
+            child: Row(
+              children: [
+                Text(
+                  'POPULAR BRANDS',
+                  style: TextStyle(
+                    fontFamily: 'DM Serif Display',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.0,
+                    color: LuxuryTheme.textCharcoal,
+                  ),
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    height: 1,
+                    color: LuxuryTheme.primaryRosegold.withOpacity(0.3),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
           // Featured Brand - ZARA (without text overlay)
           GestureDetector(
             onTap: () => _navigateToSpecificBrand(context, featuredBrand['siteIndex'] as int),

@@ -3,14 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/data_service.dart';
 import '../services/url_handler_service.dart';
+import '../constants/theme_constants.dart';
 import 'webview_screen.dart';
 import 'cart_screen.dart';
 import '../widgets/homescreenwidgets/main_banner.dart';
 import '../widgets/homescreenwidgets/featured_brands.dart';
 import '../widgets/homescreenwidgets/victorias_secret_banner.dart';
-import '../widgets/homescreenwidgets/akkooo_picks.dart';
+import '../widgets/homescreenwidgets/atilla_karat_video_section.dart';
 import '../widgets/homescreenwidgets/popular_brands.dart';
-import '../widgets/homescreenwidgets/price_drop_alerts.dart';
+// Import the renamed component (previously price_drop_alerts.dart)
+import '../widgets/homescreenwidgets/fashion_brand_grid.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -23,6 +25,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final DataService _dataService = DataService();
   final UrlHandlerService _urlHandlerService = UrlHandlerService();
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey<State> _pageKey = GlobalKey<State>();
+  bool _initialLoadComplete = false;
   
   // Animation controllers
   late final AnimationController _fadeInController;
@@ -42,8 +46,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     },
     {
       'id': '2',
-      'title': 'Dior J\'adore Eau de Parfum',
-      'price': 980.0,
       'currency': 'USD',
       'isFavorite': false,
       'imageUrl': 'assets/images/zara_bg.png',
@@ -146,72 +148,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
   }
 
-  // URL input dialog
-  void _showUrlInputDialog() {
-    // Use a StatefulBuilder to manage the TextField and its controller properly
-    String urlText = ''; // Use a simple string variable instead of a controller
-    
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (BuildContext dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: Text('Enter Product URL'),
-              content: TextField(
-                // No controller - use onChanged instead
-                decoration: const InputDecoration(
-                  hintText: 'Paste product URL here...',
-                  prefixIcon: Icon(Icons.link),
-                ),
-                autofocus: true,
-                maxLines: 1,
-                keyboardType: TextInputType.url,
-                textInputAction: TextInputAction.go,
-                onChanged: (value) {
-                  // Update the local string variable
-                  urlText = value;
-                },
-                onSubmitted: (value) {
-                  if (value.trim().isNotEmpty) {
-                    Navigator.of(dialogContext).pop();
-                    
-                    // Process URL after dialog is closed
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _processUrl(value.trim());
-                    });
-                  }
-                },
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('CANCEL'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    if (urlText.trim().isNotEmpty) {
-                      Navigator.of(dialogContext).pop();
-                      
-                      // Process URL after dialog is closed
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _processUrl(urlText.trim());
-                      });
-                    }
-                  },
-                  child: const Text('GO'),
-                ),
-              ],
-            );
-          }
-        );
-      },
-    );
-  }
-
   // Process the URL in a separate method
   void _processUrl(String url) {
     if (url.isNotEmpty) {
@@ -232,7 +168,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       } else {
         // Show error message
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['errorMessage'] ?? 'Invalid URL'))
+          SnackBar(
+            content: Text(result['errorMessage'] ?? 'Invalid URL'),
+            backgroundColor: LuxuryTheme.textCharcoal,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          )
         );
       }
     }
@@ -265,7 +208,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
+        statusBarIconBrightness: Brightness.dark,
         systemNavigationBarColor: Colors.white,
         systemNavigationBarIconBrightness: Brightness.dark,
       ),
@@ -275,11 +218,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           controller: _scrollController,
           physics: BouncingScrollPhysics(),
           slivers: [
-            // SliverAppBar will scroll away as user scrolls down
+            // SliverAppBar with rosegold accents
             SliverAppBar(
               backgroundColor: Colors.white,
-              floating: true, // Appears immediately when scrolling up
-              snap: true,     // Snaps to full height when visible
+              floating: true,
+              snap: true,
               elevation: 0,
               leadingWidth: 120,
               leading: Padding(
@@ -287,24 +230,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 child: Text(
                   'FOOZ',
                   style: TextStyle(
+                    fontFamily: 'DM Serif Display',
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black,
+                    color: LuxuryTheme.primaryRosegold,
                     letterSpacing: 1.0,
                   ),
                 ),
               ),
               actions: [
-                // URL Input button - replacing the notifications button
+                // Only keep the shopping bag icon
                 IconButton(
-                  icon: const Icon(Icons.link, color: Colors.black),
-                  onPressed: () {
-                    HapticFeedback.selectionClick();
-                    _showUrlInputDialog();
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.shopping_bag_outlined, color: Colors.black),
+                  icon: Icon(
+                    Icons.shopping_bag_outlined,
+                    color: LuxuryTheme.primaryRosegold,
+                  ),
                   onPressed: () {
                     HapticFeedback.selectionClick();
                     _navigateToCart();
@@ -329,17 +269,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         // Featured brands with navigation
                         FeaturedBrands(),
                         
-                        // FOOZ picks section
-                        AkkoooPicksSection(),
+                        // Atilla Karat section with updated rosegold theme
+                        AtillaKaratVideoSection(
+                          navigateToProduct: _navigateToSpecificProduct,
+                        ),
                         
-                        // Victoria's Secret banner
+                        // Victoria's Secret banner with updated rosegold theme
                         VictoriasSecretBanner(
                           navigateToSite: _navigateToSite,
                           dataService: _dataService,
                         ),
                         
-                        // Price Drop Alerts section
-                        PriceDropAlertsSection(
+                        // Renamed from Price Drop Alerts to Curated Selections
+                        FashionBrandGrid(
                           dataService: _dataService,
                         ),
                         

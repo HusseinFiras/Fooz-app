@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import '../models/product_info.dart';
 import '../services/cart_service.dart';
+import 'checkout_screen.dart'; // Import the new checkout screen
 
 class CartScreen extends StatefulWidget {
   const CartScreen({Key? key}) : super(key: key);
@@ -52,6 +53,21 @@ class _CartScreenState extends State<CartScreen> {
         ),
       ),
     );
+  }
+  
+  // Navigate to checkout screen
+  void _navigateToCheckout() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CheckoutScreen(
+          cartItems: _cartItems,
+        ),
+      ),
+    ).then((_) {
+      // Refresh cart when returning from checkout
+      _loadCartItems();
+    });
   }
 
   @override
@@ -276,13 +292,7 @@ class _CartScreenState extends State<CartScreen> {
                                   foregroundColor: Colors.white,
                                   padding: const EdgeInsets.symmetric(vertical: 16),
                                 ),
-                                onPressed: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Checkout functionality coming soon!'),
-                                    ),
-                                  );
-                                },
+                                onPressed: _navigateToCheckout,
                                 child: const Text(
                                   'CHECKOUT',
                                   style: TextStyle(

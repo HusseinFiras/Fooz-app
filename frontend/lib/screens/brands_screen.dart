@@ -2,7 +2,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/data_service.dart';
+import '../services/url_handler_service.dart';
 import 'webview_screen.dart';
+import '../constants/theme_constants.dart';
+
+// Import widget components
+import '../widgets/brandscreenwidgets/url_search_widget.dart';
+import '../widgets/brandscreenwidgets/category_tabs_widget.dart';
+import '../widgets/brandscreenwidgets/brand_grid_widget.dart';
 
 class BrandsScreen extends StatefulWidget {
   const BrandsScreen({Key? key}) : super(key: key);
@@ -13,378 +20,158 @@ class BrandsScreen extends StatefulWidget {
 
 class _BrandsScreenState extends State<BrandsScreen> with TickerProviderStateMixin {
   final DataService _dataService = DataService();
-  final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
-  // Animation controllers
-  late AnimationController _fadeController;
-  
-  // Animations
-  late Animation<double> _fadeAnimation;
-
-  // State variables
-  bool _isSearching = false;
-  String _searchQuery = '';
+  // Selected tab index
   int _selectedCategoryIndex = 0;
   
   // Categories
-  final List<String> _categories = ['All Brands', 'Luxury', 'Fashion', 'Beauty', 'Sports'];
+  final List<String> _categories = ['All Brands', 'Luxury', 'Fashion', 'Accessories']; 
   
-  // Brand categorization
-  final List<String> _luxuryBrands = [
-    'Gucci',
-    'Cartier',
-    'Swarovski',
-    'Miu Miu',
-    'Beymen',
-    'Blue Diamond',
-    'Lacoste',
-    'Sandro',
-    'Deep Atelier',
-    'Mango'
-  ];
-
-  final List<String> _fashionBrands = [
-    'Zara',
-    'Stradivarius',
-    'Guess',
-    'Bershka',
-    'Massimo Dutti',
-    'Pandora',
-    'Victoria\'s Secret',
-    'Nocturne',
-    'Ipekyol'
-  ];
-
-  final List<String> _beautyBrands = [
-    'Sephora',
-    'MAC',
-    'Estee Lauder',
-    'L\'Oreal',
-    'Clinique'
-  ];
-
-  final List<String> _sportsBrands = [
-    'Nike',
-    'Adidas',
-    'Puma',
-    'Under Armour',
-    'New Balance'
-  ];
-
+  // Brand data for different categories - populated from DataService in initState
+  late List<List<Map<String, dynamic>>> _brandsByCategory;
+  
   @override
   void initState() {
     super.initState();
-
-    // Initialize animation controller
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-
-    _fadeAnimation = CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeOutCubic,
-    );
-    
-    // Start animation
-    _fadeController.forward();
-    
-    // Add search controller listener
-    _searchController.addListener(_onSearchChanged);
+    _initializeBrandCategories();
   }
-
+  
+  // Initialize brand categories using retail sites from DataService
+  void _initializeBrandCategories() {
+    final allBrands = _dataService.retailSites.map((site) {
+      return {
+        'name': site['name'] ?? '',
+        'url': site['url'] ?? '',
+        'logoAsset': 'assets/images/brands/${_getBrandImageName(site['name'] ?? '')}.png',
+      };
+    }).toList();
+    
+    // Define luxury brands
+    final luxuryBrands = allBrands.where((brand) => 
+      ['Gucci', 'Cartier', 'Miu Miu', 'Beymen'].contains(brand['name'])
+    ).toList();
+    
+    // Define fashion brands
+    final fashionBrands = allBrands.where((brand) => 
+      ['Zara', 'Stradivarius', 'Guess', 'Mango', 'Bershka', 'Massimo Dutti', 
+       'Victoria\'s Secret', 'Nocturne', 'Ipekyol', 'Sandro', 'Manc', 'Deep Atelier', 'Lacoste'].contains(brand['name'])
+    ).toList();
+    
+    // Define accessories brands
+    final accessoriesBrands = allBrands.where((brand) => 
+      ['Swarovski', 'Pandora', 'Blue Diamond'].contains(brand['name'])
+    ).toList();
+    
+    _brandsByCategory = [
+      allBrands,         // All brands
+      luxuryBrands,      // Luxury brands
+      fashionBrands,     // Fashion brands
+      accessoriesBrands, // Accessories brands
+    ];
+  }
+  
+  // Helper method to convert brand name to filename format
+  String _getBrandImageName(String brandName) {
+    return brandName.toLowerCase().replaceAll(' ', '_').replaceAll('\'', '');
+  }
+  
   @override
   void dispose() {
-    _fadeController.dispose();
-    _searchController.removeListener(_onSearchChanged);
-    _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
-  
-  void _onSearchChanged() {
-    setState(() {
-      _searchQuery = _searchController.text.toLowerCase();
-    });
-  }
-  
-  void _toggleSearch() {
-    setState(() {
-      _isSearching = !_isSearching;
-      if (!_isSearching) {
-        _searchController.clear();
-      }
-    });
-  }
-  
-  void _navigateToSite(int index) {
-    HapticFeedback.mediumImpact(); // Give tactile feedback
 
+  void _handleCategorySelected(int index) {
+    setState(() {
+      _selectedCategoryIndex = index;
+    });
+  }
+
+  void _navigateToSite(BuildContext context, String brandName) {
+    // Find the brand in DataService if it exists
+    int siteIndex = -1;
+    for (int i = 0; i < _dataService.retailSites.length; i++) {
+      if (_dataService.retailSites[i]['name']!.toLowerCase() == brandName.toLowerCase()) {
+        siteIndex = i;
+        break;
+      }
+    }
+    
+    // If brand not found in DataService, show a message
+    if (siteIndex == -1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Coming soon: $brandName'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: LuxuryTheme.textCharcoal,
+        ),
+      );
+      return;
+    }
+    
+    HapticFeedback.mediumImpact();
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => WebViewScreen(
-          initialSiteIndex: index,
-        ),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return WebViewScreen(initialSiteIndex: siteIndex);
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          var begin = Offset(1.0, 0.0);
+          var end = Offset.zero;
+          var curve = Curves.easeOutCubic;
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+        transitionDuration: Duration(milliseconds: 400),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    // Filter brands based on search query and category
-    List<Map<String, String>> filteredBrands = _dataService.retailSites.where((site) {
-      final name = site['name']?.toLowerCase() ?? '';
-      
-      // First filter by search query
-      if (_searchQuery.isNotEmpty && !name.contains(_searchQuery)) {
-        return false;
-      }
-      
-      // Then filter by category
-      if (_selectedCategoryIndex == 0) {
-        return true; // All brands
-      } else if (_selectedCategoryIndex == 1) {
-        return _luxuryBrands.contains(site['name']);
-      } else if (_selectedCategoryIndex == 2) {
-        return _fashionBrands.contains(site['name']);
-      } else if (_selectedCategoryIndex == 3) {
-        return _beautyBrands.contains(site['name']);
-      } else if (_selectedCategoryIndex == 4) {
-        return _sportsBrands.contains(site['name']);
-      }
-      
-      return true;
-    }).toList();
-
     return Scaffold(
+      backgroundColor: LuxuryTheme.neutralOffWhite,
       appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: _isSearching
-          ? TextField(
-              controller: _searchController,
-              autofocus: true,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                hintText: 'Search brands...',
-                hintStyle: TextStyle(color: Colors.white70),
-                border: InputBorder.none,
-              ),
-            )
-          : const Text('Brands'),
-        actions: [
-          IconButton(
-            icon: Icon(_isSearching ? Icons.clear : Icons.search),
-            onPressed: _toggleSearch,
+        backgroundColor: Colors.white,
+        title: Text(
+          'Brands',
+          style: TextStyle(
+            fontFamily: 'DM Serif Display',
+            color: LuxuryTheme.textCharcoal,
+            fontWeight: FontWeight.w500,
+            fontSize: 20,
           ),
-        ],
+        ),
+        centerTitle: true,
+        elevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Categories
-          Container(
-            height: 50,
-            margin: const EdgeInsets.symmetric(vertical: 8),
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _categories.length,
-              itemBuilder: (context, index) {
-                final isSelected = _selectedCategoryIndex == index;
-                
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedCategoryIndex = index;
-                    });
-                    HapticFeedback.selectionClick();
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.only(right: 10),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: isSelected ? Colors.black : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(25),
-                    ),
-                    child: Center(
-                      child: Text(
-                        _categories[index],
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.black,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
+          // URL Search Widget
+          UrlSearchWidget(),
+          
+          // Category Tabs Widget
+          CategoryTabsWidget(
+            categories: _categories,
+            selectedIndex: _selectedCategoryIndex,
+            onCategorySelected: _handleCategorySelected,
           ),
           
-          // Grid of brands
+          // Brand Grid - Expanded to fill remaining space
           Expanded(
-            child: filteredBrands.isEmpty
-              ? const Center(
-                  child: Text('No brands found'),
-                )
-              : FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: GridView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(16),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 1.2,
-                    ),
-                    itemCount: filteredBrands.length,
-                    itemBuilder: (context, index) {
-                      final site = filteredBrands[index];
-                      final name = site['name'] ?? '';
-                      
-                      // Determine category
-                      String category = 'Other';
-                      if (_luxuryBrands.contains(name)) {
-                        category = 'Luxury';
-                      } else if (_fashionBrands.contains(name)) {
-                        category = 'Fashion';
-                      } else if (_beautyBrands.contains(name)) {
-                        category = 'Beauty';
-                      } else if (_sportsBrands.contains(name)) {
-                        category = 'Sports';
-                      }
-                      
-                      return _buildBrandCard(name, category, index);
-                    },
-                  ),
-                ),
+            child: BrandGridWidget(
+              brands: _brandsByCategory[_selectedCategoryIndex],
+              onBrandTapped: _navigateToSite,
+            ),
           ),
         ],
-      ),
-    );
-  }
-  
-  Widget _buildBrandCard(String name, String category, int index) {
-    // Generate a color based on category
-    Color cardColor;
-    switch (category) {
-      case 'Luxury':
-        cardColor = Colors.blueGrey[800]!;
-        break;
-      case 'Fashion':
-        cardColor = Colors.indigo[700]!;
-        break;
-      case 'Beauty':
-        cardColor = Colors.pink[700]!;
-        break;
-      case 'Sports':
-        cardColor = Colors.green[700]!;
-        break;
-      default:
-        cardColor = Colors.grey[700]!;
-    }
-    
-    return GestureDetector(
-      onTap: () => _navigateToSite(
-        _dataService.retailSites.indexWhere((site) => site['name'] == name)
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Stack(
-          children: [
-            // Background of card 
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      cardColor,
-                      cardColor.withOpacity(0.8),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            
-            // Content
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Brand circle with first letter
-                  Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.9),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        name.substring(0, 1),
-                        style: TextStyle(
-                          color: cardColor,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  
-                  // Brand name
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  
-                  // Category tag
-                  Container(
-                    margin: const EdgeInsets.only(top: 4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      category,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

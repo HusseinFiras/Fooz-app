@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'dart:async';
 import '../../services/data_service.dart';
 import '../../screens/webview_screen.dart';
+import '../../constants/theme_constants.dart';
 
 class MainBanner extends StatefulWidget {
   const MainBanner({Key? key}) : super(key: key);
@@ -98,85 +99,91 @@ class _MainBannerState extends State<MainBanner> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      // Further reduced height
-      height: 210,
-      margin: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      child: Stack(
-        children: [
-          // Clip with rounded corners
-          ClipRRect(
-            // Added rounded corners with 16 radius
-            borderRadius: BorderRadius.circular(16),
-            child: PageView.builder(
-              controller: _pageController,
-              onPageChanged: (index) {
-                setState(() {
-                  _realIndex = index % _banners.length;
-                });
-              },
-              itemBuilder: (context, index) {
-                final actualIndex = index % _banners.length;
-                final banner = _banners[actualIndex];
-                return GestureDetector(
-                  onTap: () {
-                    // Navigate to the corresponding site when banner is tapped
-                    _navigateToSite(context, banner['siteIndex']);
-                  },
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      ShaderMask(
-                        shaderCallback: (rect) {
-                          return LinearGradient(
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                            colors: [
-                              Colors.black.withOpacity(0.6),
-                              Colors.transparent,
-                            ],
-                          ).createShader(rect);
-                        },
-                        blendMode: BlendMode.darken,
-                        child: Image.asset(
-                          banner['image'],
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity,
+      // Set the background color to match the app's background
+      color: LuxuryTheme.neutralOffWhite,
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Container(
+        // Further reduced height
+        height: 210,
+        margin: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Stack(
+          children: [
+            // Clip with rounded corners
+            ClipRRect(
+              // Added rounded corners with 16 radius
+              borderRadius: BorderRadius.circular(16),
+              child: PageView.builder(
+                controller: _pageController,
+                onPageChanged: (index) {
+                  setState(() {
+                    _realIndex = index % _banners.length;
+                  });
+                },
+                itemBuilder: (context, index) {
+                  final actualIndex = index % _banners.length;
+                  final banner = _banners[actualIndex];
+                  return GestureDetector(
+                    onTap: () {
+                      // Navigate to the corresponding site when banner is tapped
+                      _navigateToSite(context, banner['siteIndex']);
+                    },
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ShaderMask(
+                          shaderCallback: (rect) {
+                            return LinearGradient(
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                              colors: [
+                                Colors.black.withOpacity(0.6),
+                                Colors.transparent,
+                              ],
+                            ).createShader(rect);
+                          },
+                          blendMode: BlendMode.darken,
+                          child: Image.asset(
+                            banner['image'],
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: double.infinity,
+                          ),
                         ),
-                      ),
-                      
-                      AnimatedContainer(
-                        duration: Duration(milliseconds: 800),
-                        decoration: BoxDecoration(),
-                      ),
-                    ],
-                  ),
-                );
-              },
+                        
+                        AnimatedContainer(
+                          duration: Duration(milliseconds: 800),
+                          decoration: BoxDecoration(),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
-          
-          // Indicator dots
-          Positioned(
-            bottom: 16,
-            right: 16,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: List.generate(_banners.length, (i) {
-                return AnimatedContainer(
-                  duration: Duration(milliseconds: 300),
-                  margin: EdgeInsets.only(left: 4),
-                  height: 8,
-                  width: i == _realIndex ? 16 : 8,
-                  decoration: BoxDecoration(
-                    color: i == _realIndex ? Colors.white : Colors.white.withOpacity(0.4),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                );
-              }),
+            
+            // Indicator dots
+            Positioned(
+              bottom: 16,
+              right: 16,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(_banners.length, (i) {
+                  return AnimatedContainer(
+                    duration: Duration(milliseconds: 300),
+                    margin: EdgeInsets.only(left: 4),
+                    height: 8,
+                    width: i == _realIndex ? 16 : 8,
+                    decoration: BoxDecoration(
+                      color: i == _realIndex ? Colors.white : Colors.white.withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  );
+                }),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
