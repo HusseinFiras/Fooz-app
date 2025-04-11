@@ -1,9 +1,10 @@
+// Updated webview_service.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../models/product_info.dart';
-import '../utils/debug_utils.dart'; // Import our custom debug utility
+import '../utils/debug_utils.dart';
 
 class WebViewService {
   final WebViewController controller = WebViewController();
@@ -41,10 +42,15 @@ class WebViewService {
                   details: 'Type: ${error.errorType}');
             }
           },
+          onUrlChange: (UrlChange change) {
+            if (change.url != null) {
+              onUrlChanged(change.url!);
+              // When URL changes, we should reset the loading state
+              onLoadingStateChanged(true);
+            }
+          },
         ),
       )
-      // Note: Not using setDebugLoggingCallback since it's not available in this version
-      // Instead, we'll filter log messages in our DebugLog utility
       ..loadRequest(Uri.parse(initialUrl));
 
     // Add custom JavaScript to filter console logs
@@ -116,18 +122,35 @@ class WebViewService {
       DebugLog.d('Received product data from JS',
           category: DebugLog.PRODUCT, details: data);
 
-      final newProductInfo = ProductInfo.fromJson(data);
-      onProductInfoChanged(newProductInfo);
+      // Check if we have a valid product message
+      if (data['isProductPage'] == true) {
+        // Create product info object from data
+        final newProductInfo = ProductInfo.fromJson(data);
 
-      if (data.containsKey('navigated') && data['navigated'] == true) {
-        onUrlChanged(data['url'] ?? '');
+        // Only notify if we have valid product data (success = true indicates valid product)
+        if (newProductInfo.success) {
+          DebugLog.i('Successfully extracted product info',
+              category: DebugLog.PRODUCT);
+          onProductInfoChanged(newProductInfo);
+        } else {
+          DebugLog.w('Product page detected but extraction failed',
+              category: DebugLog.PRODUCT);
+        }
+      }
+
+      // Handle URL change notification if present
+      if (data.containsKey('navigated') &&
+          data['navigated'] == true &&
+          data.containsKey('url') &&
+          data['url'] != null) {
+        onUrlChanged(data['url']);
       }
     } catch (e) {
       DebugLog.w('Error parsing product data JSON: $e',
           category: DebugLog.PRODUCT);
 
       try {
-        // Fallback parsing for simple format
+        // Fallback parsing for simple format (price|title)
         final data = message.message.split('|');
         if (data.length >= 2) {
           final price = double.tryParse(data[0]);
@@ -167,12 +190,35 @@ class WebViewService {
     try {
       DebugLog.d('Injecting product detector script',
           category: DebugLog.PRODUCT);
+
+      // First inject the script from assets
       final script = await rootBundle.loadString('assets/product_detector.js');
-      controller.runJavaScript(script);
-      DebugLog.i('Product detector script injected successfully',
+      await controller.runJavaScript(script);
+
+      // Then execute the init function with a delay to let the page fully render
+      await Future.delayed(const Duration(milliseconds: 500));
+      await controller.runJavaScript('''
+        // Clear any existing timers
+        if (window._productDetectionTimers) {
+          window._productDetectionTimers.forEach(timer => clearTimeout(timer));
+        }
+        window._productDetectionTimers = [];
+        
+        // First attempt immediate detection
+        detectAndReportProduct();
+        
+        // Then schedule additional detection attempts with increasing delays
+        // This helps with sites that load content dynamically
+        window._productDetectionTimers.push(setTimeout(() => detectAndReportProduct(), 1000));
+        window._productDetectionTimers.push(setTimeout(() => detectAndReportProduct(), 2500));
+        window._productDetectionTimers.push(setTimeout(() => detectAndReportProduct(), 5000));
+      ''');
+
+      DebugLog.i(
+          'Product detector script injected and initialized successfully',
           category: DebugLog.PRODUCT);
     } catch (e) {
-      DebugLog.e('Error loading product detector script: $e',
+      DebugLog.e('Error injecting product detector script: $e',
           category: DebugLog.PRODUCT);
       _injectLegacyPriceExtractor();
     }
@@ -200,7 +246,7 @@ class WebViewService {
             '.urn_adetfiyat', '.prc-box-dscntd'
           ];
 
-          // Product title selectors for different sites (optimized for Turkish e-commerce)
+          // Product title selectors for different sites
           const titleSelectors = [
             'h1', '.product-title', '.product-name', 
             '.item-title', '.product-info__name', '.pdp-title',
@@ -250,70 +296,14 @@ class WebViewService {
           return null;
         }
         
-        // Method 2: Look for schema.org markup (many e-commerce sites use this)
-        function trySchemaOrgMarkup() {
-          // Try to find product structured data
-          const jsonLdScripts = document.querySelectorAll('script[type="application/ld+json"]');
-          for (const script of jsonLdScripts) {
-            try {
-              const data = JSON.parse(script.textContent);
-              
-              // Handle nested structures or arrays
-              const findProduct = (obj) => {
-                if (!obj) return null;
-                
-                if (obj['@type'] === 'Product') {
-                  return obj;
-                }
-                
-                if (Array.isArray(obj)) {
-                  for (const item of obj) {
-                    const result = findProduct(item);
-                    if (result) return result;
-                  }
-                } else if (typeof obj === 'object') {
-                  for (const key in obj) {
-                    const result = findProduct(obj[key]);
-                    if (result) return result;
-                  }
-                }
-                
-                return null;
-              };
-              
-              const product = findProduct(data);
-              
-              if (product) {
-                let price = null;
-                let title = product.name;
-                
-                // Try to extract price
-                if (product.offers) {
-                  if (Array.isArray(product.offers)) {
-                    if (product.offers.length > 0) {
-                      price = product.offers[0].price || product.offers[0].lowPrice;
-                    }
-                  } else {
-                    price = product.offers.price || product.offers.lowPrice;
-                  }
-                }
-                
-                if (price && title) {
-                  return { price: price.toString(), title: title };
-                }
-              }
-            } catch (e) {
-              // JSON parsing error, continue to next script
-            }
-          }
-          
-          return null;
-        }
-        
-        // Method 3: Look for meta tags
+        // Method 2: Look for structured data in meta tags
         function tryMetaTags() {
-          const priceMetaTag = document.querySelector('meta[property="product:price:amount"], meta[property="og:price:amount"], meta[name="twitter:data1"]');
-          const titleMetaTag = document.querySelector('meta[property="og:title"], meta[name="twitter:title"]');
+          // Try Open Graph, Twitter Cards, and other meta tags
+          const priceMetaSelector = 'meta[property="product:price:amount"], meta[property="og:price:amount"], meta[name="twitter:data1"], meta[itemprop="price"]';
+          const titleMetaSelector = 'meta[property="og:title"], meta[name="twitter:title"], meta[itemprop="name"]';
+          
+          const priceMetaTag = document.querySelector(priceMetaSelector);
+          const titleMetaTag = document.querySelector(titleMetaSelector);
           
           if (priceMetaTag && titleMetaTag) {
             return {
@@ -325,7 +315,7 @@ class WebViewService {
           return null;
         }
         
-        // Method 4: Look for any text that matches price patterns in the page
+        // Method 3: Look for any text that matches price patterns in the page
         function scanForPricePatterns() {
           const priceRegex = /([0-9]+[.,][0-9]+)\\s*(?:TL|₺|\$|€|£)/i;
           const elements = document.querySelectorAll('div, span, p');
@@ -344,7 +334,6 @@ class WebViewService {
             
             if (match) {
               // If we find multiple price matches, use the one closest to the product info
-              // This is a simple heuristic - we get the element closest to the center of the page
               if (!bestPriceElement || 
                 Math.abs(window.innerHeight/2 - element.getBoundingClientRect().top) < 
                 Math.abs(window.innerHeight/2 - bestPriceElement.getBoundingClientRect().top)) {
@@ -365,24 +354,30 @@ class WebViewService {
         }
         
         // Try all methods in sequence
-        const result = tryCommonSelectors() || trySchemaOrgMarkup() || tryMetaTags() || scanForPricePatterns();
+        const result = tryCommonSelectors() || tryMetaTags() || scanForPricePatterns();
         
         if (result) {
-          // Clean and format the price
+          // Format the price for better parsing
           let priceStr = result.price;
           
           // First check if it's already a clean number
           if (!isNaN(parseFloat(priceStr))) {
-            FlutterChannel.postMessage(priceStr + '|' + result.title);
+            // Format as JSON
+            let productInfo = {
+              isProductPage: true,
+              title: result.title,
+              price: parseFloat(priceStr),
+              success: true,
+              url: window.location.href
+            };
+            FlutterChannel.postMessage(JSON.stringify(productInfo));
             return;
           }
           
-          // Extract numeric price from text (optimized for Turkish currency format)
-          // Turkish prices typically use comma as decimal separator and period as thousands separator
-          // Example: 1.299,99 TL -> should become 1299.99
+          // Extract numeric price from text
           let price = priceStr.replace(/[^0-9.,]/g, '');
           
-          // Handle Turkish currency format (1.234,56 TL) -> 1234.56
+          // Handle different currency format (1.234,56 TL -> 1234.56)
           if (price.includes(',') && price.includes('.')) {
             // Remove all periods (thousand separators in Turkish format)
             price = price.replace(/\\./g, '');
@@ -394,13 +389,25 @@ class WebViewService {
           }
           
           if (price && !isNaN(parseFloat(price))) {
-            FlutterChannel.postMessage(price + '|' + result.title);
+            // Format as JSON
+            let productInfo = {
+              isProductPage: true,
+              title: result.title,
+              price: parseFloat(price),
+              success: true,
+              url: window.location.href
+            };
+            FlutterChannel.postMessage(JSON.stringify(productInfo));
           }
         }
       }
       
       // Try immediate extraction for static content
-      setTimeout(extractProductInfo, 1000);
+      setTimeout(extractProductInfo, 800);
+      
+      // Additional attempts to handle dynamic content loading
+      setTimeout(extractProductInfo, 2000);
+      setTimeout(extractProductInfo, 4000);
       
       // Observe DOM changes to detect dynamic content loading
       const observer = new MutationObserver(() => {
@@ -410,13 +417,12 @@ class WebViewService {
       observer.observe(document.body, { subtree: true, childList: true });
       
       // Also try extraction after all resources are loaded
-      window.addEventListener('load', () => setTimeout(extractProductInfo, 2000));
-      
-      // And try again after a few seconds in case of lazy-loaded content
-      setTimeout(extractProductInfo, 3000);
-      setTimeout(extractProductInfo, 5000);
+      window.addEventListener('load', () => setTimeout(extractProductInfo, 1500));
     ''';
+
     controller.runJavaScript(js);
+    DebugLog.i('Legacy price extractor injected as fallback',
+        category: DebugLog.PRODUCT);
   }
 
   Future<void> loadUrl(String url) async {
