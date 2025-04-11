@@ -51,18 +51,110 @@ function isProductPage() {
 
   log(`Checking if product page for site: ${site} - URL: ${url}`);
 
+  // Debug helper to log common product page selectors
+  function logSelectors() {
+    const selectors = [
+      { name: ".pdp__info", found: !!document.querySelector(".pdp__info") },
+      {
+        name: ".product-info",
+        found: !!document.querySelector(".product-info"),
+      },
+      {
+        name: '[data-ctl-name="pdp-page"]',
+        found: !!document.querySelector('[data-ctl-name="pdp-page"]'),
+      },
+      {
+        name: ".product-detail",
+        found: !!document.querySelector(".product-detail"),
+      },
+      {
+        name: ".product-details",
+        found: !!document.querySelector(".product-details"),
+      },
+      {
+        name: ".product__details",
+        found: !!document.querySelector(".product__details"),
+      },
+      {
+        name: ".product-description",
+        found: !!document.querySelector(".product-description"),
+      },
+      { name: ".add-to-cart", found: !!document.querySelector(".add-to-cart") },
+      {
+        name: "product-name",
+        found: !!document.querySelector(".product-name"),
+      },
+      {
+        name: "h1 element",
+        found: !!document.querySelector("h1"),
+        text: document.querySelector("h1")?.textContent.trim(),
+      },
+      // Specific selector from your HTML
+      {
+        name: "Size dropdown",
+        found: !!document.querySelector(
+          "#product-detail-add-to-shopping-bag-form"
+        ),
+      },
+      {
+        name: "select2-dropdown",
+        found: !!document.querySelector(".select2-dropdown"),
+      },
+      { name: "slick-track", found: !!document.querySelector(".slick-track") },
+    ];
+
+    log("Checking common product page selectors:", selectors);
+
+    // Check for product structured data
+    const hasStructuredData = document
+      .querySelector('script[type="application/ld+json"]')
+      ?.textContent.includes('"@type":"Product"');
+    log("Has product structured data:", hasStructuredData);
+
+    return selectors;
+  }
+
   switch (site) {
     case "gucci":
-      return (
+      // Check URL patterns for Gucci
+      const gucciUrlCheck =
         url.includes("/p/") ||
+        url.includes("/pr/") || // Added this pattern which appears in your logs
         url.endsWith(".pd") ||
+        url.includes("-p-"); // Product ID pattern
+
+      // Check DOM selectors for Gucci - including the specific ones from your HTML
+      const gucciDomCheck =
         !!document.querySelector(".pdp__info") ||
         !!document.querySelector(".product-info") ||
         !!document.querySelector('[data-ctl-name="pdp-page"]') ||
-        document
-          .querySelector('script[type="application/ld+json"]')
-          ?.textContent.includes('"@type":"Product"')
-      );
+        !!document.querySelector(".product__name") ||
+        !!document.querySelector(".product-hero") ||
+        !!document.querySelector('[itemprop="price"]') ||
+        !!document.querySelector("#product-detail-add-to-shopping-bag-form") || // From your HTML
+        !!document.querySelector(".size-dropdown") || // From your HTML
+        !!document.querySelector(".select2-dropdown") || // From your HTML
+        !!document.querySelector(".select2-results__options") || // From your HTML
+        !!document.querySelector(".slick-track"); // From your HTML
+
+      // Check structured data for Gucci
+      const gucciStructuredCheck = document
+        .querySelector('script[type="application/ld+json"]')
+        ?.textContent.includes('"@type":"Product"');
+
+      // Log debugging info
+      log("Gucci product page checks:", {
+        urlCheck: gucciUrlCheck,
+        domCheck: gucciDomCheck,
+        structuredCheck: gucciStructuredCheck,
+      });
+
+      // If still not detected, log all selectors for debugging
+      if (!gucciUrlCheck && !gucciDomCheck && !gucciStructuredCheck) {
+        logSelectors();
+      }
+
+      return gucciUrlCheck || gucciDomCheck || gucciStructuredCheck;
 
     // Add more site patterns here
     // case 'zara':
@@ -247,6 +339,8 @@ function extractGucciStructuredData() {
     // Search through JSON-LD scripts for product data
     for (const script of scripts) {
       try {
+        if (!script.textContent) continue;
+
         const data = JSON.parse(script.textContent);
 
         // Find product in the JSON structure
@@ -335,6 +429,35 @@ function extractGucciStructuredData() {
             result.availability = "Pre-Order";
           }
         }
+
+        // Try to extract sizes from nested offers (some sites use this pattern)
+        if (
+          Array.isArray(productData.offers) &&
+          productData.offers.length > 1
+        ) {
+          log("Multiple offers found, checking for size variants");
+
+          const sizeSet = new Set();
+
+          for (const subOffer of productData.offers) {
+            // Look for size information in different locations
+            const size =
+              subOffer.size ||
+              subOffer.name?.match(/size:?\s*(\S+)/i)?.[1] ||
+              subOffer.description?.match(/size:?\s*(\S+)/i)?.[1];
+
+            if (size && !sizeSet.has(size)) {
+              sizeSet.add(size);
+              result.variants.sizes.push({
+                text: size,
+                selected: false,
+                value: size,
+              });
+
+              log(`Added size from JSON-LD offer: ${size}`);
+            }
+          }
+        }
       }
     }
 
@@ -350,6 +473,69 @@ function extractGucciStructuredData() {
         result.imageUrl = makeUrlAbsolute(imgUrl);
       } else if (productData.image.url) {
         result.imageUrl = makeUrlAbsolute(productData.image.url);
+      }
+    }
+
+    // Extract color variants - some sites include this in the structured data
+    if (productData.color) {
+      // Handle different formats of the color property
+      if (typeof productData.color === "string") {
+        result.variants.colors.push({
+          text: productData.color,
+          selected: true, // If it's in the main product, it's likely selected
+          value: productData.color,
+        });
+
+        log(`Added color from JSON-LD: ${productData.color}`);
+      } else if (Array.isArray(productData.color)) {
+        for (const color of productData.color) {
+          if (typeof color === "string") {
+            result.variants.colors.push({
+              text: color,
+              selected: false,
+              value: color,
+            });
+
+            log(`Added color from JSON-LD array: ${color}`);
+          }
+        }
+      }
+    }
+
+    // Extract any available variants
+    if (productData.offers && productData.offers.itemOffered) {
+      const variants = Array.isArray(productData.offers.itemOffered)
+        ? productData.offers.itemOffered
+        : [productData.offers.itemOffered];
+
+      for (const variant of variants) {
+        // Extract color
+        if (
+          variant.color &&
+          !result.variants.colors.some((c) => c.text === variant.color)
+        ) {
+          result.variants.colors.push({
+            text: variant.color,
+            selected: false,
+            value: variant.color,
+          });
+
+          log(`Added color from variant: ${variant.color}`);
+        }
+
+        // Extract size
+        if (
+          variant.size &&
+          !result.variants.sizes.some((s) => s.text === variant.size)
+        ) {
+          result.variants.sizes.push({
+            text: variant.size,
+            selected: false,
+            value: variant.size,
+          });
+
+          log(`Added size from variant: ${variant.size}`);
+        }
       }
     }
 
@@ -377,66 +563,187 @@ function extractGucciDom() {
       success: false,
     };
 
-    // Title - try various selectors
-    const titleElement =
-      document.querySelector(".pdp__info-title") ||
-      document.querySelector(".product-detail__title") ||
-      document.querySelector('[data-ctl-name="pdp-title"]') ||
-      document.querySelector("h1");
-
-    if (titleElement) {
-      result.title = titleElement.textContent.trim();
-      log("Found title:", result.title);
+    // Log all available H1 elements for debugging Gucci's structure
+    const allH1s = document.querySelectorAll("h1");
+    log(`Found ${allH1s.length} H1 elements on page`);
+    for (let i = 0; i < allH1s.length; i++) {
+      log(
+        `H1 #${i + 1}: "${allH1s[i].textContent.trim()}" with classes: ${
+          allH1s[i].className
+        }`
+      );
     }
 
-    // Price - try various selectors
-    const priceElement =
-      document.querySelector(".pdp__info-price") ||
-      document.querySelector(".product-detail__price") ||
-      document.querySelector('[data-ctl-name="pdp-price"]') ||
-      document.querySelector('[itemprop="price"]');
+    // Extract product name - try harder to find it when h1 is not present
+    let titleElement = document.querySelector("h1");
 
-    if (priceElement) {
+    // If no h1, try other common product title patterns
+    if (
+      !titleElement ||
+      !titleElement.textContent ||
+      titleElement.textContent.trim() === ""
+    ) {
+      const possibleTitleElements = [
+        // Try meta tags first
+        document.querySelector('meta[property="og:title"]'),
+        document.querySelector('meta[name="twitter:title"]'),
+        // Then try common DOM patterns
+        document.querySelector(".product-name"),
+        document.querySelector(".pdp-title"),
+        document.querySelector(".prod-title"),
+        document.querySelector(".product-detail-name"),
+        document.querySelector('[class*="product"][class*="title"]'),
+        document.querySelector('[class*="product"][class*="name"]'),
+      ];
+
+      // Find the first element that has text content
+      for (const element of possibleTitleElements) {
+        if (element) {
+          // Meta tags have content attribute
+          if (element.tagName === "META") {
+            result.title = element.getAttribute("content");
+            log("Found title from meta tag:", result.title);
+            break;
+          } else if (element.textContent && element.textContent.trim() !== "") {
+            result.title = element.textContent.trim();
+            log("Found title from alternative element:", result.title);
+            break;
+          }
+        }
+      }
+
+      // Try to get the title from the page title as last resort
+      if (!result.title) {
+        const pageTitle = document.title;
+        if (pageTitle) {
+          // Often page titles follow pattern: "Product Name | Brand Name"
+          const titleParts = pageTitle.split("|");
+          if (titleParts.length > 1) {
+            result.title = titleParts[0].trim();
+          } else {
+            result.title = pageTitle;
+          }
+          log("Extracted title from page title:", result.title);
+        }
+      }
+    } else if (titleElement) {
+      result.title = titleElement.textContent.trim();
+      log("Found title from h1:", result.title);
+    }
+
+    // Log all elements with 'price' in their class name
+    const priceElements = document.querySelectorAll(
+      '[class*="price" i], [class*="Price" i]'
+    );
+    log(`Found ${priceElements.length} potential price elements`);
+    for (let i = 0; i < Math.min(priceElements.length, 5); i++) {
+      if (priceElements[i] && priceElements[i].textContent) {
+        log(
+          `Price element #${i + 1}: "${priceElements[
+            i
+          ].textContent.trim()}" with classes: ${priceElements[i].className}`
+        );
+      }
+    }
+
+    // Price - try various selectors for current Gucci site
+    const priceElement =
+      document.querySelector(".product-detail-price") ||
+      document.querySelector(".product-price") ||
+      document.querySelector(".price-value") ||
+      document.querySelector(".product-detail__price") ||
+      document.querySelector(".price-current") ||
+      document.querySelector(".product-prices") ||
+      document.querySelector('[class*="price"]:not([class*="original"])');
+
+    if (priceElement && priceElement.textContent) {
       const priceText = priceElement.textContent.trim();
       result.price = formatPrice(priceText);
       result.currency = detectCurrency(priceText);
       log("Found price:", result.price, result.currency);
+    } else {
+      // Try finding any text that looks like a price
+      const allElements = document.querySelectorAll("p, span, div");
+      const priceRegex = /([0-9.,]+)\s*(?:€|\$|£|TL|₺)/;
+
+      for (const element of allElements) {
+        if (element && element.textContent) {
+          const text = element.textContent.trim();
+          const match = text.match(priceRegex);
+
+          if (match) {
+            log("Found price text by regex:", text);
+            result.price = formatPrice(match[0]);
+            result.currency = detectCurrency(match[0]);
+            break;
+          }
+        }
+      }
     }
 
     // Original price (for sales)
     const originalPriceElement =
-      document.querySelector(".pdp__info-original-price") ||
+      document.querySelector(".product-detail-original-price") ||
+      document.querySelector(".original-price") ||
+      document.querySelector(".price-original") ||
       document.querySelector(".product-detail__original-price") ||
-      document.querySelector(".original-price");
+      document.querySelector('[class*="original"][class*="price" i]');
 
-    if (originalPriceElement) {
+    if (originalPriceElement && originalPriceElement.textContent) {
       const originalPriceText = originalPriceElement.textContent.trim();
       result.originalPrice = formatPrice(originalPriceText);
       log("Found original price:", result.originalPrice);
     }
 
     // Image - try various selectors
-    const imageElement =
-      document.querySelector(".pdp-carousel__image img") ||
-      document.querySelector(".product-detail__image img") ||
-      document.querySelector('[data-ctl-name="pdp-gallery"] img') ||
-      document.querySelector(".product-image img");
+    const imageElements = document.querySelectorAll("img");
+    let bestImage = null;
+    let largestArea = 0;
 
-    if (imageElement) {
+    // Find the largest image that's likely to be a product image
+    for (const img of imageElements) {
+      if (!img) continue;
+
+      const rect = img.getBoundingClientRect();
+      const area = rect.width * rect.height;
+
+      if (area > largestArea && rect.width > 100 && rect.height > 100) {
+        largestArea = area;
+        bestImage = img;
+      }
+    }
+
+    if (bestImage) {
       result.imageUrl = makeUrlAbsolute(
-        imageElement.src || imageElement.getAttribute("data-src")
+        bestImage.src || bestImage.getAttribute("data-src")
       );
-      log("Found image:", result.imageUrl);
+      log("Found best image:", result.imageUrl);
+    } else {
+      // Try specific selectors if we couldn't find by size
+      const imageElement =
+        document.querySelector(".product-detail-image img") ||
+        document.querySelector(".gallery-image img") ||
+        document.querySelector(".product-image img") ||
+        document.querySelector(".pdp-image img") ||
+        document.querySelector('[aria-label="Product image"] img');
+
+      if (imageElement) {
+        result.imageUrl = makeUrlAbsolute(
+          imageElement.src || imageElement.getAttribute("data-src")
+        );
+        log("Found image by selector:", result.imageUrl);
+      }
     }
 
     // Description - try various selectors
     const descElement =
-      document.querySelector(".pdp__info-description") ||
-      document.querySelector(".product-detail__description") ||
-      document.querySelector('[data-ctl-name="pdp-description"]') ||
-      document.querySelector('[itemprop="description"]');
+      document.querySelector(".product-detail-description") ||
+      document.querySelector(".product-description") ||
+      document.querySelector(".description") ||
+      document.querySelector(".pdp-description") ||
+      document.querySelector(".product-detail__description");
 
-    if (descElement) {
+    if (descElement && descElement.textContent) {
       result.description = descElement.textContent.trim();
       log("Found description");
     }
@@ -445,10 +752,24 @@ function extractGucciDom() {
     result.brand = "Gucci";
 
     // Extract sizes
-    extractGucciSizes(result);
+    result.variants = {
+      colors: [],
+      sizes: [],
+      otherOptions: [],
+    };
 
-    // Extract colors
-    extractGucciColors(result);
+    // Call size and color extractors with safety checks
+    try {
+      extractGucciSizes(result);
+    } catch (e) {
+      log("Error in size extraction:", e);
+    }
+
+    try {
+      extractGucciColors(result);
+    } catch (e) {
+      log("Error in color extraction:", e);
+    }
 
     // Check if we have the minimum needed information
     result.success = !!(result.title && result.price);
@@ -463,119 +784,172 @@ function extractGucciDom() {
 // Extract sizes from Gucci product page
 function extractGucciSizes(result) {
   try {
-    // Find size selector
-    const sizeSelector =
-      document.querySelector(".pdp-size-selector") ||
-      document.querySelector(".product-detail__size-selector") ||
-      document.querySelector('[data-ctl-name="pdp-size-selector"]');
+    log("Extracting Gucci sizes");
 
-    if (!sizeSelector) {
-      log("No size selector found");
-      return;
-    }
+    // DIRECT SELECTOR FROM USER: Try the exact CSS selector provided
+    try {
+      const directSizeSelector =
+        "#product-detail-add-to-shopping-bag-form > div > div.sizes > div.size-dropdown > div > div > span:nth-child(3) > span";
+      const directSizes = document.querySelectorAll(directSizeSelector);
 
-    log("Found size selector");
+      if (directSizes && directSizes.length > 0) {
+        log(
+          `Found ${directSizes.length} size options using direct CSS selector`
+        );
 
-    // Find selected size
-    const selectedSize =
-      sizeSelector.querySelector(".selected") ||
-      sizeSelector.querySelector('[aria-selected="true"]') ||
-      sizeSelector.querySelector(".active");
+        for (const option of directSizes) {
+          if (!option) continue;
+          if (!option.textContent) continue;
 
-    // Get all size options
-    const sizeOptions = sizeSelector.querySelectorAll(
-      "button, .size-option, li"
-    );
+          const text = option.textContent.trim();
+          if (!text || text.toLowerCase().includes("select size")) continue;
 
-    if (sizeOptions.length === 0) {
-      log("No size options found");
-      return;
-    }
+          result.variants.sizes.push({
+            text: text,
+            selected: false, // Can't determine selected state from this selector
+            value: text,
+          });
 
-    log(`Found ${sizeOptions.length} size options`);
+          log(`Added size from direct selector: ${text}`);
+        }
 
-    // Process each size option
-    for (const option of sizeOptions) {
-      const text = option.textContent.trim();
-
-      // Skip empty or placeholder options
-      if (!text || text === "Select Size") continue;
-
-      const isSelected =
-        option === selectedSize ||
-        option.classList.contains("selected") ||
-        option.getAttribute("aria-selected") === "true";
-
-      const value = option.value || option.getAttribute("data-value") || text;
-
-      result.variants.sizes.push({
-        text: text,
-        selected: isSelected,
-        value: value,
-      });
-
-      log(`Added size: ${text}, selected: ${isSelected}`);
-    }
-
-    // If no sizes found directly, try script data
-    if (result.variants.sizes.length === 0) {
-      log("Looking for size data in scripts");
-
-      const scripts = document.querySelectorAll("script:not([src])");
-      for (const script of scripts) {
-        if (
-          script.textContent.includes("pdpSizes") ||
-          script.textContent.includes("sizes") ||
-          script.textContent.includes("sizeChart")
-        ) {
-          // Try to extract size data with regex
-          const sizeMatch =
-            script.textContent.match(/pdpSizes\s*=\s*(\[.*?\])/s) ||
-            script.textContent.match(/sizes\s*=\s*(\[.*?\])/s) ||
-            script.textContent.match(/sizeData\s*=\s*(\[.*?\])/s);
-
-          if (sizeMatch && sizeMatch[1]) {
-            try {
-              // Convert to valid JSON
-              const jsonStr = sizeMatch[1]
-                .replace(/'/g, '"')
-                .replace(/(\w+):/g, '"$1":')
-                .replace(/,\s*}/g, "}")
-                .replace(/,\s*\]/g, "]");
-
-              const sizeData = JSON.parse(jsonStr);
-
-              if (Array.isArray(sizeData) && sizeData.length > 0) {
-                log(`Found ${sizeData.length} sizes in script data`);
-
-                for (const size of sizeData) {
-                  if (typeof size === "string") {
-                    result.variants.sizes.push({
-                      text: size,
-                      selected: false,
-                      value: size,
-                    });
-                  } else if (typeof size === "object" && size !== null) {
-                    result.variants.sizes.push({
-                      text:
-                        size.label ||
-                        size.name ||
-                        size.text ||
-                        size.value ||
-                        "",
-                      selected: size.selected || false,
-                      value: size.value || size.id || "",
-                    });
-                  }
-                }
-              }
-            } catch (e) {
-              log("Error parsing size data:", e);
-            }
-          }
+        if (result.variants.sizes.length > 0) {
+          return; // Successfully found sizes using direct selector
         }
       }
+    } catch (e) {
+      log("Error with direct selector:", e);
     }
+
+    // Look for Select2 dropdown which might be shown in a different part of the DOM
+    // This is specifically targeting the structure in the provided HTML
+    try {
+      const select2OptionElements = document.querySelectorAll(
+        ".select2-results__option"
+      );
+
+      if (select2OptionElements && select2OptionElements.length > 0) {
+        log(`Found ${select2OptionElements.length} Select2 option elements`);
+
+        for (const option of select2OptionElements) {
+          if (!option) continue;
+
+          // Get the size content within the option
+          const sizeSpan = option.querySelector(".custom-select-content-size");
+          if (!sizeSpan || !sizeSpan.textContent) continue;
+
+          const text = sizeSpan.textContent.trim();
+          if (!text || text.toLowerCase().includes("select size")) continue;
+
+          const isSelected = option.classList.contains(
+            "select2-results__option--highlighted"
+          );
+
+          result.variants.sizes.push({
+            text: text,
+            selected: isSelected,
+            value: text,
+          });
+
+          log(
+            `Added size from Select2 results: ${text}, selected: ${isSelected}`
+          );
+        }
+
+        if (result.variants.sizes.length > 0) {
+          return; // Successfully found sizes in Select2
+        }
+      }
+    } catch (e) {
+      log("Error with Select2 extraction:", e);
+    }
+
+    // Look for size dropdown content directly
+    try {
+      const customSizeElements = document.querySelectorAll(
+        ".custom-select-content-size"
+      );
+
+      if (customSizeElements && customSizeElements.length > 0) {
+        log(`Found ${customSizeElements.length} custom size content elements`);
+
+        for (const element of customSizeElements) {
+          if (!element || !element.textContent) continue;
+
+          const text = element.textContent.trim();
+          if (!text || text.toLowerCase().includes("select size")) continue;
+
+          result.variants.sizes.push({
+            text: text,
+            selected: false, // Can't determine selected state
+            value: text,
+          });
+
+          log(`Added size directly: ${text}`);
+        }
+
+        if (result.variants.sizes.length > 0) {
+          return; // Successfully found sizes
+        }
+      }
+    } catch (e) {
+      log("Error with custom size content extraction:", e);
+    }
+
+    // If Select2 not found, try other size selectors
+    const altSizeSelectors = [
+      "#product-detail-add-to-shopping-bag-form .size-dropdown .custom-select-size--available",
+      ".pdp-size-selector li",
+      ".size-selector li",
+      ".size-dropdown select option",
+      ".size-option",
+      // More general selectors
+      ".sizes span",
+      ".sizes option",
+      '[id*="size-selector"] li',
+      '[id*="size-selector"] span',
+    ];
+
+    for (const selector of altSizeSelectors) {
+      try {
+        const elements = document.querySelectorAll(selector);
+        if (elements && elements.length > 0) {
+          log(
+            `Found ${elements.length} size options using selector: ${selector}`
+          );
+
+          for (const element of elements) {
+            if (!element || !element.textContent) continue;
+
+            // Skip "Select size" placeholder
+            const text = element.textContent.trim();
+            if (!text || text.toLowerCase().includes("select size")) continue;
+
+            const isSelected =
+              element.classList.contains("selected") ||
+              element.classList.contains("active") ||
+              element.closest(".selected") !== null;
+
+            result.variants.sizes.push({
+              text: text,
+              selected: isSelected,
+              value: text,
+            });
+
+            log(`Added size: ${text}, selected: ${isSelected}`);
+          }
+
+          if (result.variants.sizes.length > 0) {
+            return; // Found sizes with this selector
+          }
+        }
+      } catch (e) {
+        log(`Error with alternate selector ${selector}:`, e);
+      }
+    }
+
+    // If still no sizes found, log it
+    log("No size options found on page");
   } catch (e) {
     log("Error extracting sizes:", e);
   }
@@ -584,91 +958,238 @@ function extractGucciSizes(result) {
 // Extract colors from Gucci product page
 function extractGucciColors(result) {
   try {
-    // Find color selector
-    const colorSelector =
-      document.querySelector(".pdp-color-selector") ||
-      document.querySelector(".product-detail__color-selector") ||
-      document.querySelector('[data-ctl-name="pdp-color-selector"]');
+    log("Extracting Gucci colors");
 
-    if (!colorSelector) {
-      log("No color selector found");
-      return;
-    }
+    // Directly extract color info from the HTML you provided
+    try {
+      // Look specifically for .carousel-slide or .slick-slide elements
+      const colorSlides = document.querySelectorAll(
+        ".carousel-slide, .slick-slide"
+      );
 
-    log("Found color selector");
+      if (colorSlides && colorSlides.length > 0) {
+        log(`Found ${colorSlides.length} potential color slides in carousel`);
 
-    // Find selected color
-    const selectedColor =
-      colorSelector.querySelector(".selected") ||
-      colorSelector.querySelector('[aria-selected="true"]') ||
-      colorSelector.querySelector(".active");
+        for (const slide of colorSlides) {
+          if (!slide) continue;
 
-    // Get all color options
-    const colorOptions = colorSelector.querySelectorAll(
-      "button, .color-option, li"
-    );
+          // Look for the tooltip content which contains color name
+          const tooltipContent = slide.querySelector(
+            "[data-gg-tooltip--content]"
+          );
+          if (!tooltipContent || !tooltipContent.textContent) continue;
 
-    if (colorOptions.length === 0) {
-      log("No color options found");
-      return;
-    }
+          const colorText = tooltipContent.textContent.trim();
+          if (!colorText) continue;
 
-    log(`Found ${colorOptions.length} color options`);
+          // Check if this is the selected/current slide
+          const isSelected =
+            slide.classList.contains("slick-current") ||
+            slide.classList.contains("slick-active") ||
+            slide.classList.contains("selected");
 
-    // Process each color option
-    for (const option of colorOptions) {
-      // Skip empty options
-      if (!option) continue;
+          // Try to get color image URL
+          let colorImgUrl = null;
+          const img = slide.querySelector("img");
+          if (img && img.src) {
+            colorImgUrl = makeUrlAbsolute(
+              img.src || img.srcset || img.getAttribute("data-src")
+            );
+          }
 
-      const isSelected =
-        option === selectedColor ||
-        option.classList.contains("selected") ||
-        option.getAttribute("aria-selected") === "true";
+          result.variants.colors.push({
+            text: colorText,
+            selected: isSelected,
+            value: colorImgUrl || colorText,
+          });
 
-      // Try to get color name/text
-      let colorText =
-        option.getAttribute("title") || option.getAttribute("aria-label") || "";
-      if (!colorText) {
-        colorText = option.textContent.trim();
+          log(
+            `Added color from carousel: ${colorText}, selected: ${isSelected}`
+          );
+        }
+
+        if (result.variants.colors.length > 0) {
+          return; // Successfully found colors in carousel
+        }
       }
+    } catch (e) {
+      log("Error with carousel color extraction:", e);
+    }
 
-      // Skip empty or placeholder options
-      if (!colorText || colorText === "Select Color") continue;
+    // Try to extract color tooltips directly
+    try {
+      const tooltipContents = document.querySelectorAll(
+        "[data-gg-tooltip--content]"
+      );
 
-      // Try to get color value (could be a color code or image URL)
-      let colorValue =
-        option.value ||
-        option.getAttribute("data-color") ||
-        option.getAttribute("data-value");
+      if (tooltipContents && tooltipContents.length > 0) {
+        log(`Found ${tooltipContents.length} color tooltip contents`);
 
-      // If no explicit value, try to get background color or image
-      if (!colorValue) {
-        const computedStyle = window.getComputedStyle(option);
-        const bgColor = computedStyle.backgroundColor;
+        for (const tooltip of tooltipContents) {
+          if (!tooltip || !tooltip.textContent) continue;
 
-        if (
-          bgColor &&
-          bgColor !== "transparent" &&
-          bgColor !== "rgba(0, 0, 0, 0)"
-        ) {
-          colorValue = bgColor;
-        } else {
-          // Check for image
-          const img = option.querySelector("img");
-          if (img) {
-            colorValue = makeUrlAbsolute(img.src);
+          const colorText = tooltip.textContent.trim();
+          if (!colorText) continue;
+
+          // Try to find the image associated with this tooltip
+          let colorImgUrl = null;
+          const parentSlide = tooltip.closest(".carousel-slide, .slick-slide");
+          if (parentSlide) {
+            const img = parentSlide.querySelector("img");
+            if (img && img.src) {
+              colorImgUrl = makeUrlAbsolute(
+                img.src || img.srcset || img.getAttribute("data-src")
+              );
+            }
+          }
+
+          result.variants.colors.push({
+            text: colorText,
+            selected: parentSlide
+              ? parentSlide.classList.contains("slick-current")
+              : false,
+            value: colorImgUrl || colorText,
+          });
+
+          log(`Added color from tooltip: ${colorText}`);
+        }
+
+        if (result.variants.colors.length > 0) {
+          return; // Successfully found colors in tooltips
+        }
+      }
+    } catch (e) {
+      log("Error with tooltip color extraction:", e);
+    }
+
+    // If carousel not found, try other color selectors
+    const altColorSelectors = [
+      ".product-colors .color-swatch",
+      ".pdp-color-selector [data-color]",
+      ".color-option",
+      ".color-selector li",
+      ".color-swatches .swatch",
+    ];
+
+    for (const selector of altColorSelectors) {
+      try {
+        const elements = document.querySelectorAll(selector);
+        if (elements && elements.length > 0) {
+          log(
+            `Found ${elements.length} color options using selector: ${selector}`
+          );
+
+          for (const element of elements) {
+            if (!element) continue;
+
+            // Try to get color name from various attributes
+            let colorText =
+              element.getAttribute("title") ||
+              element.getAttribute("aria-label") ||
+              element.getAttribute("data-color-name");
+
+            // Only try textContent if we haven't found the color name in attributes
+            if (!colorText && element.textContent) {
+              colorText = element.textContent.trim();
+            }
+
+            if (!colorText) continue;
+
+            const isSelected =
+              element.classList.contains("selected") ||
+              element.classList.contains("active") ||
+              element.classList.contains("current");
+
+            // Try to get color value (could be color code or image)
+            let colorValue =
+              element.getAttribute("data-color") ||
+              element.getAttribute("data-color-value");
+
+            // If no explicit value, try background color or image
+            if (!colorValue) {
+              const img = element.querySelector("img");
+              if (img && img.src) {
+                colorValue = makeUrlAbsolute(img.src || img.srcset);
+              } else {
+                try {
+                  const style = window.getComputedStyle(element);
+                  colorValue = style.backgroundColor;
+                } catch (e) {
+                  // Ignore style errors
+                }
+              }
+            }
+
+            result.variants.colors.push({
+              text: colorText,
+              selected: isSelected,
+              value: colorValue || colorText,
+            });
+
+            log(`Added color: ${colorText}, selected: ${isSelected}`);
+          }
+
+          if (result.variants.colors.length > 0) {
+            return; // Found colors with this selector
+          }
+        }
+      } catch (e) {
+        log(`Error with alternate color selector ${selector}:`, e);
+      }
+    }
+
+    // Try a more general approach for finding colors - look for elements that might be color indicators
+    try {
+      const possibleColorTags = [
+        "color",
+        "colour",
+        "shade",
+        "finish",
+        "hue",
+        "dye",
+        "tone",
+        "tint",
+      ];
+
+      for (const tag of possibleColorTags) {
+        const elements = document.querySelectorAll(
+          `[class*="${tag}" i], [id*="${tag}" i], [data-*="${tag}" i]`
+        );
+
+        if (elements && elements.length > 0) {
+          log(
+            `Found ${elements.length} possible color elements with tag '${tag}'`
+          );
+
+          for (const element of elements) {
+            if (!element || !element.textContent) continue;
+
+            const text = element.textContent.trim();
+            if (!text) continue;
+
+            // Skip elements with too much text (likely not a color)
+            if (text.length > 30 || text.includes("\n")) continue;
+
+            result.variants.colors.push({
+              text: text,
+              selected: false,
+              value: text,
+            });
+
+            log(`Added possible color from general search: ${text}`);
+          }
+
+          if (result.variants.colors.length > 0) {
+            return; // Found colors with this general approach
           }
         }
       }
-
-      result.variants.colors.push({
-        text: colorText,
-        selected: isSelected,
-        value: colorValue || colorText,
-      });
-
-      log(`Added color: ${colorText}, selected: ${isSelected}`);
+    } catch (e) {
+      log("Error with general color search:", e);
     }
+
+    // If still no colors found, log it
+    log("No color options found on page");
   } catch (e) {
     log("Error extracting colors:", e);
   }
@@ -740,6 +1261,283 @@ function extractGucciBasic() {
 
 // ==================== MAIN EXECUTION LOGIC ====================
 
+// Direct product finder function - finds any product-like structure on the page
+function findAnyProductInfo() {
+  log("Emergency product detection - looking for any product-like elements");
+
+  // Check if this page seems to be a product page by URL
+  const url = window.location.href;
+  const isProbablyProductPage =
+    url.includes("/pr/") ||
+    url.includes("/p/") ||
+    url.includes("-p-") ||
+    url.match(/\/[A-Za-z0-9]{6,}$/); // Ends with product code
+
+  log(
+    `URL product check: ${
+      isProbablyProductPage ? "Likely product page" : "Not sure"
+    } - ${url}`
+  );
+
+  // Log DOM structure information to help debug
+  logPageStructure();
+
+  // Result object to store found info
+  const result = {
+    isProbablyProductPage,
+    foundElements: {},
+  };
+
+  // Check for product title (h1 or other heading elements)
+  const headings = document.querySelectorAll("h1, h2");
+  if (headings.length > 0) {
+    result.foundElements.title = {
+      element: headings[0].tagName,
+      text: headings[0].textContent.trim(),
+      classes: headings[0].className,
+    };
+  }
+
+  // Look for price elements (containing currency symbols)
+  const allElements = document.querySelectorAll("*");
+  let priceElements = [];
+  for (const el of allElements) {
+    const text = el.textContent.trim();
+    if (
+      /[0-9.,]+\s*(?:€|\$|£|TL|₺)/.test(text) ||
+      /(?:€|\$|£|TL|₺)\s*[0-9.,]+/.test(text)
+    ) {
+      priceElements.push({
+        element: el.tagName,
+        text: text,
+        classes: el.className,
+      });
+    }
+  }
+
+  if (priceElements.length > 0) {
+    result.foundElements.prices = priceElements.slice(0, 3); // Limit to first 3 found
+  }
+
+  // Look for add to cart buttons
+  const buttons = document.querySelectorAll(
+    'button, a.button, .btn, [role="button"]'
+  );
+  const cartButtons = [];
+  for (const btn of buttons) {
+    const text = btn.textContent.toLowerCase().trim();
+    if (
+      text.includes("cart") ||
+      text.includes("bag") ||
+      text.includes("basket") ||
+      text.includes("buy") ||
+      text.includes("add") ||
+      text.includes("purchase")
+    ) {
+      cartButtons.push({
+        element: btn.tagName,
+        text: btn.textContent.trim(),
+        classes: btn.className,
+      });
+    }
+  }
+
+  if (cartButtons.length > 0) {
+    result.foundElements.cartButtons = cartButtons.slice(0, 2); // Limit to first 2 found
+  }
+
+  // Look for product images
+  const images = document.querySelectorAll("img");
+  const largeImages = [];
+  for (const img of images) {
+    const rect = img.getBoundingClientRect();
+    if (rect.width > 200 && rect.height > 200) {
+      largeImages.push({
+        width: rect.width,
+        height: rect.height,
+        src: img.src,
+        alt: img.alt,
+        classes: img.className,
+      });
+    }
+  }
+
+  if (largeImages.length > 0) {
+    result.foundElements.images = largeImages.slice(0, 2); // Limit to first 2 found
+  }
+
+  // Check page metadata
+  const ogTitle = document
+    .querySelector('meta[property="og:title"]')
+    ?.getAttribute("content");
+  const ogType = document
+    .querySelector('meta[property="og:type"]')
+    ?.getAttribute("content");
+  const ogImage = document
+    .querySelector('meta[property="og:image"]')
+    ?.getAttribute("content");
+
+  if (ogTitle || ogType || ogImage) {
+    result.foundElements.openGraph = {
+      title: ogTitle,
+      type: ogType,
+      image: ogImage,
+    };
+  }
+
+  // Look for sizes and colors specifically
+  findSizesAndColors(result);
+
+  log("Emergency product detection results:", result);
+  return result;
+}
+
+// Helper function to find sizes and colors specifically
+function findSizesAndColors(result) {
+  // Look for any Select2 dropdowns (which might contain sizes)
+  const select2Elements = document.querySelectorAll(
+    ".select2-container, .select2-dropdown, .select2-results"
+  );
+  if (select2Elements.length > 0) {
+    log(`Found ${select2Elements.length} Select2 elements`);
+
+    result.foundElements.select2 = {
+      count: select2Elements.length,
+      classes: Array.from(select2Elements)
+        .map((el) => el.className)
+        .join(" | "),
+    };
+
+    // Look for size options within Select2
+    const sizeContents = document.querySelectorAll(
+      ".custom-select-content-size"
+    );
+    if (sizeContents.length > 0) {
+      result.foundElements.select2Sizes = Array.from(sizeContents).map((el) =>
+        el.textContent.trim()
+      );
+      log(`Found ${sizeContents.length} sizes in Select2`);
+    }
+  }
+
+  // Look for carousel/slick elements (which might contain colors)
+  const carouselElements = document.querySelectorAll(
+    ".slick-track, .carousel, .slick-slider"
+  );
+  if (carouselElements.length > 0) {
+    log(`Found ${carouselElements.length} carousel/slider elements`);
+
+    result.foundElements.carousels = {
+      count: carouselElements.length,
+      classes: Array.from(carouselElements)
+        .map((el) => el.className)
+        .join(" | "),
+    };
+
+    // Look for tooltip content which might have color names
+    const tooltipContents = document.querySelectorAll(
+      "[data-gg-tooltip--content]"
+    );
+    if (tooltipContents.length > 0) {
+      result.foundElements.tooltipColors = Array.from(tooltipContents).map(
+        (el) => el.textContent.trim()
+      );
+      log(`Found ${tooltipContents.length} tooltip contents (possibly colors)`);
+    }
+  }
+}
+
+// Helper function to log overall page structure
+function logPageStructure() {
+  try {
+    log("Analyzing page structure");
+
+    // Check for common product page containers
+    const containers = [
+      {
+        name: "Product detail container",
+        selector: '.product-detail, .pdp, [class*="product-detail"]',
+      },
+      {
+        name: "Add to cart form",
+        selector:
+          'form[action*="cart"], form[action*="bag"], [id*="shopping-bag-form"]',
+      },
+      {
+        name: "Product info section",
+        selector: ".product-info, .pdp-info, .product-details",
+      },
+      {
+        name: "Size selector",
+        selector: '.size-dropdown, .size-selector, [class*="size"]',
+      },
+      {
+        name: "Color selector",
+        selector: '.color-carousel, .color-selector, [class*="color"]',
+      },
+      {
+        name: "Price element",
+        selector: '.price, [class*="price"], [class*="Price"]',
+      },
+    ];
+
+    let structureInfo = {};
+
+    for (const container of containers) {
+      const elements = document.querySelectorAll(container.selector);
+      if (elements.length > 0) {
+        structureInfo[container.name] = {
+          count: elements.length,
+          classes: Array.from(elements)
+            .slice(0, 2)
+            .map((el) => el.className)
+            .join(" | "),
+        };
+      }
+    }
+
+    log("Page structure analysis:", structureInfo);
+
+    // Look for Select2 initialization in scripts
+    const scripts = document.querySelectorAll("script:not([src])");
+    let foundSelect2 = false;
+
+    for (const script of scripts) {
+      if (
+        script.textContent.includes("select2") ||
+        script.textContent.includes("Select2")
+      ) {
+        foundSelect2 = true;
+        log("Found Select2 initialization in scripts");
+        break;
+      }
+    }
+
+    if (!foundSelect2) {
+      log("No Select2 initialization found in scripts");
+    }
+
+    // Look for slick carousel initialization in scripts
+    let foundSlick = false;
+    for (const script of scripts) {
+      if (
+        script.textContent.includes("slick(") ||
+        script.textContent.includes(".slick(")
+      ) {
+        foundSlick = true;
+        log("Found Slick carousel initialization in scripts");
+        break;
+      }
+    }
+
+    if (!foundSlick) {
+      log("No Slick carousel initialization found in scripts");
+    }
+  } catch (e) {
+    log("Error analyzing page structure:", e);
+  }
+}
+
 // Main function to detect and report product info
 function detectAndReportProduct(retryCount = 0) {
   log(`Running product detection (attempt: ${retryCount + 1})`);
@@ -760,6 +1558,108 @@ function detectAndReportProduct(retryCount = 0) {
 
     // Extract product info
     const productInfo = extractProductInfo();
+
+    // Try emergency detection if not successful and it's the last retry
+    if (
+      (!productInfo.isProductPage || !productInfo.success) &&
+      retryCount >= CONFIG.maxRetries - 1
+    ) {
+      const emergencyResults = findAnyProductInfo();
+      productInfo.emergencyResults = emergencyResults;
+
+      // If we found a title and price in emergency mode, try to use it
+      if (
+        emergencyResults.foundElements.title &&
+        emergencyResults.foundElements.prices
+      ) {
+        // Check if URL looks like a product
+        const url = window.location.href;
+        if (
+          url.includes("/pr/") ||
+          url.includes("/p/") ||
+          url.includes("-p-")
+        ) {
+          log(
+            "URL suggests this is a product page, using emergency detection results"
+          );
+
+          // Update product info with emergency results
+          productInfo.isProductPage = true;
+          productInfo.title = emergencyResults.foundElements.title.text;
+
+          // Try to extract price from found price text
+          if (emergencyResults.foundElements.prices.length > 0) {
+            const priceText = emergencyResults.foundElements.prices[0].text;
+            productInfo.price = formatPrice(priceText);
+            productInfo.currency = detectCurrency(priceText);
+
+            // Get image if available
+            if (
+              emergencyResults.foundElements.images &&
+              emergencyResults.foundElements.images.length > 0
+            ) {
+              productInfo.imageUrl =
+                emergencyResults.foundElements.images[0].src;
+            }
+
+            // Try to add sizes if found in emergency mode
+            if (
+              emergencyResults.foundElements.select2Sizes &&
+              emergencyResults.foundElements.select2Sizes.length > 0
+            ) {
+              productInfo.variants = productInfo.variants || {
+                colors: [],
+                sizes: [],
+                otherOptions: [],
+              };
+
+              for (const sizeText of emergencyResults.foundElements
+                .select2Sizes) {
+                productInfo.variants.sizes.push({
+                  text: sizeText,
+                  selected: false,
+                  value: sizeText,
+                });
+              }
+
+              log(
+                `Added ${emergencyResults.foundElements.select2Sizes.length} sizes from emergency detection`
+              );
+            }
+
+            // Try to add colors if found in emergency mode
+            if (
+              emergencyResults.foundElements.tooltipColors &&
+              emergencyResults.foundElements.tooltipColors.length > 0
+            ) {
+              productInfo.variants = productInfo.variants || {
+                colors: [],
+                sizes: [],
+                otherOptions: [],
+              };
+
+              for (const colorText of emergencyResults.foundElements
+                .tooltipColors) {
+                productInfo.variants.colors.push({
+                  text: colorText,
+                  selected: false,
+                  value: colorText,
+                });
+              }
+
+              log(
+                `Added ${emergencyResults.foundElements.tooltipColors.length} colors from emergency detection`
+              );
+            }
+
+            productInfo.success = true;
+            productInfo.extractionMethod = "emergency_detection";
+
+            log("Emergency product detection successful!", productInfo);
+          }
+        }
+      }
+    }
 
     // Report back to Flutter
     log("Sending product info to Flutter:", productInfo);
