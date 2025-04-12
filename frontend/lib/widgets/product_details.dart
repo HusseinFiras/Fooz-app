@@ -1,4 +1,4 @@
-// lib/widgets/product_details.dart
+// lib/widgets/product_details.dart - Fixed to avoid setState during build
 import 'package:flutter/material.dart';
 import '../models/product_info.dart';
 import '../models/variant_option.dart';
@@ -25,10 +25,42 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
   bool _isInFavorites = false;
   bool _isLoading = false;
 
+  // Image state variables - initialized but not modified during build
+  bool _imageError = false;
+  String? _imageErrorMessage;
+
   @override
   void initState() {
     super.initState();
     _checkProductStatus();
+    _debugLogProductInfo(); // Log product details for debugging
+  }
+
+  // Useful for debugging product data
+  void _debugLogProductInfo() {
+    if (widget.productInfo.imageUrl != null) {
+      debugPrint('Product image URL: ${widget.productInfo.imageUrl}');
+      debugPrint(
+          'Fixed image URL: ${_fixImageUrl(widget.productInfo.imageUrl!)}');
+    } else {
+      debugPrint('No product image URL available');
+    }
+
+    if (widget.productInfo.variants != null &&
+        widget.productInfo.variants!.containsKey('colors') &&
+        widget.productInfo.variants!['colors']!.isNotEmpty) {
+      debugPrint(
+          'Found ${widget.productInfo.variants!['colors']!.length} color variants');
+
+      for (final color in widget.productInfo.variants!['colors']!) {
+        if (color.value != null) {
+          debugPrint('Color: ${color.text}, Value: ${color.value}');
+          if (color.value!.startsWith('//')) {
+            debugPrint('Color needs URL fix: ${_fixImageUrl(color.value!)}');
+          }
+        }
+      }
+    }
   }
 
   Future<void> _checkProductStatus() async {
@@ -250,8 +282,11 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
               );
             } else if (title == 'Colors' &&
                 option.value != null &&
-                option.value!.startsWith('http')) {
-              // If the color value is an image URL
+                (option.value!.startsWith('http') ||
+                    option.value!.startsWith('//'))) {
+              // Fix for relative URLs (//media.gucci.com/...)
+              String imageUrl = _fixImageUrl(option.value!);
+
               return InkWell(
                 onTap: () {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -271,10 +306,18 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(5),
                     child: Image.network(
-                      option.value!,
+                      imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          Container(color: Colors.grey[300]),
+                      errorBuilder: (context, error, stackTrace) {
+                        debugPrint(
+                            'Error loading color image: $error, URL: $imageUrl');
+                        // Show error state but still keep UI clean
+                        return Container(
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.broken_image,
+                              size: 20, color: Colors.white54),
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -382,21 +425,42 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: Image.network(
-                          widget.productInfo.imageUrl!,
+                          _fixImageUrl(widget.productInfo.imageUrl!),
                           fit: BoxFit.contain,
                           loadingBuilder: (context, child, loadingProgress) {
-                            if (loadingProgress == null) return child;
+                            if (loadingProgress == null) {
+                              // Image loaded successfully
+                              return child;
+                            }
                             return Center(
-                              child: CircularProgressIndicator(
-                                value: loadingProgress.expectedTotalBytes !=
-                                        null
-                                    ? loadingProgress.cumulativeBytesLoaded /
-                                        loadingProgress.expectedTotalBytes!
-                                    : null,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  CircularProgressIndicator(
+                                    value: loadingProgress.expectedTotalBytes !=
+                                            null
+                                        ? loadingProgress
+                                                .cumulativeBytesLoaded /
+                                            loadingProgress.expectedTotalBytes!
+                                        : null,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'Loading image...',
+                                    style: TextStyle(color: Colors.grey[600]),
+                                  ),
+                                ],
                               ),
                             );
                           },
                           errorBuilder: (context, error, stackTrace) {
+                            // Log error but don't call setState
+                            debugPrint('Error loading product image: $error');
+                            debugPrint(
+                                'Image URL: ${widget.productInfo.imageUrl}');
+                            debugPrint(
+                                'Fixed URL: ${_fixImageUrl(widget.productInfo.imageUrl!)}');
+
                             return Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -406,6 +470,21 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                                   Text('Image could not be loaded',
                                       style:
                                           TextStyle(color: Colors.grey[600])),
+                                  Padding(
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: Text(
+                                      'Error: ${error.toString()}',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[500]),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                  Text(
+                                      'URL: ${_fixImageUrl(widget.productInfo.imageUrl!)}',
+                                      style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.grey[500])),
                                 ],
                               ),
                             );
@@ -498,5 +577,14 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         ],
       ),
     );
+  }
+
+  // Helper method to fix image URLs
+  String _fixImageUrl(String url) {
+    // Handle protocol-relative URLs (//media.gucci.com/...)
+    if (url.startsWith('//')) {
+      return 'https:$url';
+    }
+    return url;
   }
 }

@@ -205,9 +205,9 @@ const FormatUtils = {
     // Already absolute
     if (url.startsWith("http")) return url;
 
-    // Handle protocol-relative URLs
+    // Handle protocol-relative URLs - this is the key fix for Gucci
     if (url.startsWith("//")) {
-      return window.location.protocol + url;
+      return "https:" + url;
     }
 
     // Handle root-relative URLs

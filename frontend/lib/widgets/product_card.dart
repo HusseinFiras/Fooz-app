@@ -12,6 +12,15 @@ class ProductCard extends StatelessWidget {
     required this.onTap,
   }) : super(key: key);
 
+  // Helper method to fix image URLs
+  String _fixImageUrl(String url) {
+    // Handle protocol-relative URLs (//media.gucci.com/...)
+    if (url.startsWith('//')) {
+      return 'https:$url';
+    }
+    return url;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -39,9 +48,11 @@ class ProductCard extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: Image.network(
-                      productInfo.imageUrl!,
+                      _fixImageUrl(productInfo.imageUrl!),
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
+                        debugPrint('Error loading card image: $error');
+                        debugPrint('Image URL: ${productInfo.imageUrl}');
                         return const Icon(Icons.image_not_supported);
                       },
                     ),
