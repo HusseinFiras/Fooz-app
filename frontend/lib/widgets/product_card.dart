@@ -1,6 +1,7 @@
 // lib/widgets/product_card.dart
 import 'package:flutter/material.dart';
 import '../models/product_info.dart';
+import 'cached_image_widget.dart';
 
 class ProductCard extends StatelessWidget {
   final ProductInfo productInfo;
@@ -11,6 +12,59 @@ class ProductCard extends StatelessWidget {
     required this.productInfo,
     required this.onTap,
   }) : super(key: key);
+
+  // Extract brand from product info or URL
+  String? _extractBrand() {
+    if (productInfo.brand != null && productInfo.brand!.isNotEmpty) {
+      return productInfo.brand;
+    }
+
+    // Extract from URL if not explicitly set
+    final url = productInfo.url.toLowerCase();
+
+    // Check against known brand URLs
+    final brandMatches = {
+      'gucci.com': 'Gucci',
+      'zara.com': 'Zara',
+      'stradivarius.com': 'Stradivarius',
+      'cartier.com': 'Cartier',
+      'swarovski.com': 'Swarovski',
+      'guess': 'Guess',
+      'mango.com': 'Mango',
+      'bershka.com': 'Bershka',
+      'massimodutti': 'Massimo Dutti',
+      'deepatelier': 'Deep Atelier',
+      'pandora': 'Pandora',
+      'miumiu': 'Miu Miu',
+      'victoriassecret': 'Victoria\'s Secret',
+      'nocturne': 'Nocturne',
+      'beymen': 'Beymen',
+      'bluediamond': 'Blue Diamond',
+      'lacoste': 'Lacoste',
+      'mancofficial': 'Manc',
+      'ipekyol': 'Ipekyol',
+      'sandro': 'Sandro',
+    };
+
+    for (final entry in brandMatches.entries) {
+      if (url.contains(entry.key)) {
+        return entry.value;
+      }
+    }
+
+    // Extract from title if possible
+    if (productInfo.title != null) {
+      final title = productInfo.title!.toLowerCase();
+      for (final entry in brandMatches.entries) {
+        if (title.contains(entry.key) ||
+            title.contains(entry.value.toLowerCase())) {
+          return entry.value;
+        }
+      }
+    }
+
+    return null;
+  }
 
   // Helper method to fix image URLs
   String _fixImageUrl(String url) {
@@ -23,6 +77,8 @@ class ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brandName = _extractBrand();
+
     return Card(
       elevation: 8,
       shadowColor: Colors.black26,
@@ -36,38 +92,46 @@ class ProductCard extends StatelessWidget {
           padding: const EdgeInsets.all(12.0),
           child: Row(
             children: [
-              // Product thumbnail
-              if (productInfo.imageUrl != null)
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      _fixImageUrl(productInfo.imageUrl!),
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        debugPrint('Error loading card image: $error');
-                        debugPrint('Image URL: ${productInfo.imageUrl}');
-                        return const Icon(Icons.image_not_supported);
-                      },
-                    ),
-                  ),
-                )
-              else
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.shopping_bag, size: 30),
+              // Product thumbnail with branded fallback
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(8),
                 ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: productInfo.imageUrl != null
+                      ? CachedImageWidget(
+                          imageUrl: _fixImageUrl(productInfo.imageUrl!),
+                          width: 60,
+                          height: 60,
+                          fit: BoxFit.cover,
+                          brandName: brandName,
+                          productTitle: productInfo.title,
+                        )
+                      : Container(
+                          color: Colors.grey.shade200,
+                          child: Center(
+                            child: brandName != null
+                                ? Text(
+                                    brandName[0].toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.shopping_bag_outlined,
+                                    size: 30,
+                                    color: Colors.grey,
+                                  ),
+                          ),
+                        ),
+                ),
+              ),
               const SizedBox(width: 12),
 
               // Product info
@@ -77,7 +141,7 @@ class ProductCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      productInfo.title ?? '',
+                      productInfo.title ?? 'Product',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
@@ -109,8 +173,27 @@ class ProductCard extends StatelessWidget {
                         ],
                       ],
                     ),
-                    // Remove all variant display sections - sizes and options
-                    // They will be shown only in the details view
+                    // Display a badge with brand name if available for better identification
+                    if (brandName != null && brandName.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            brandName,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey[800],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),

@@ -1,15 +1,14 @@
-// lib/widgets/product_details.dart - Fixed to avoid setState during build
+// lib/widgets/product_details.dart
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import '../models/product_info.dart';
 import '../models/variant_option.dart';
 import '../services/cart_service.dart';
 import '../services/favorites_service.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart'; // For ImmutableBuffer
-import '../widgets/cached_image_widget.dart';
-
-const String _DEBUG_TAG = "[IMG_DEBUG]";
+import 'package:flutter/services.dart';
+import 'cached_image_widget.dart';
 
 class ProductDetailsBottomSheet extends StatefulWidget {
   final ProductInfo productInfo;
@@ -31,39 +30,42 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
   bool _isInFavorites = false;
   bool _isLoading = false;
 
-  // Image state variables - initialized but not modified during build
-  bool _imageError = false;
-  String? _imageErrorMessage;
-
   @override
   void initState() {
     super.initState();
     _checkProductStatus();
-    _debugLogProductInfo(); // Log product details for debugging
+    _debugLogProductInfo();
   }
 
-  // Useful for debugging product data
   void _debugLogProductInfo() {
+    debugPrint('[PRODUCT_DETAILS] Product title: ${widget.productInfo.title}');
+    debugPrint('[PRODUCT_DETAILS] Product brand: ${widget.productInfo.brand}');
+
     if (widget.productInfo.imageUrl != null) {
-      debugPrint('Product image URL: ${widget.productInfo.imageUrl}');
       debugPrint(
-          'Fixed image URL: ${_fixImageUrl(widget.productInfo.imageUrl!)}');
+          '[PRODUCT_DETAILS] Product image URL: ${widget.productInfo.imageUrl}');
     } else {
-      debugPrint('No product image URL available');
+      debugPrint('[PRODUCT_DETAILS] No product image URL available');
     }
 
-    if (widget.productInfo.variants != null &&
-        widget.productInfo.variants!.containsKey('colors') &&
-        widget.productInfo.variants!['colors']!.isNotEmpty) {
-      debugPrint(
-          'Found ${widget.productInfo.variants!['colors']!.length} color variants');
+    if (widget.productInfo.variants != null) {
+      final variants = widget.productInfo.variants!;
 
-      for (final color in widget.productInfo.variants!['colors']!) {
-        if (color.value != null) {
-          debugPrint('Color: ${color.text}, Value: ${color.value}');
-          if (color.value!.startsWith('//')) {
-            debugPrint('Color needs URL fix: ${_fixImageUrl(color.value!)}');
-          }
+      if (variants.containsKey('colors') && variants['colors']!.isNotEmpty) {
+        debugPrint(
+            '[PRODUCT_DETAILS] Color variants: ${variants['colors']!.length}');
+        for (final color in variants['colors']!) {
+          debugPrint(
+              '[PRODUCT_DETAILS] Color: ${color.text}, Selected: ${color.selected}, Value: ${color.value}');
+        }
+      }
+
+      if (variants.containsKey('sizes') && variants['sizes']!.isNotEmpty) {
+        debugPrint(
+            '[PRODUCT_DETAILS] Size variants: ${variants['sizes']!.length}');
+        for (final size in variants['sizes']!) {
+          debugPrint(
+              '[PRODUCT_DETAILS] Size: ${size.text}, Selected: ${size.selected}, Value: ${size.value}');
         }
       }
     }
@@ -201,21 +203,18 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     );
   }
 
-  Widget _buildVariantSection(
-      BuildContext context, String title, List<VariantOption> options) {
-    // Enhanced filtering of nonsensical options
-    final filteredOptions = options.where((option) {
+  // Enhanced color variant section with improved RGB color handling
+  Widget _buildColorVariants(List<VariantOption> colorOptions) {
+    // Filter out nonsensical or placeholder options
+    final filteredOptions = colorOptions.where((option) {
       final String lowerText = option.text.toLowerCase().trim();
 
-      // Skip options that look like country codes, honorifics, or form fields
-      if (option.text.startsWith('+') ||
-          lowerText.contains('mr.') ||
-          lowerText.contains('ms.') ||
-          lowerText.contains('mrs.') ||
-          lowerText.contains('select') ||
-          lowerText.contains('availability') ||
-          lowerText.contains('quality') ||
-          lowerText.contains('characteristics') ||
+      // Skip options that don't look like real colors or are UI elements
+      if (lowerText.contains('select') ||
+          lowerText.contains('choose') ||
+          lowerText.contains('preference') ||
+          lowerText.contains('privacy') ||
+          lowerText.contains('company logo') ||
           lowerText.contains('i\'d rather not say')) {
         return false;
       }
@@ -234,7 +233,209 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8.0),
           child: Text(
-            title,
+            'Colors',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+        ),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: filteredOptions.map((option) {
+            final String colorText = option.text;
+            final bool isSelected = option.selected;
+
+            // Try to parse RGB color from value if it exists
+            Color? colorFromRGB;
+            if (option.value != null && option.value!.contains('rgb')) {
+              colorFromRGB = _parseRgbColor(option.value!);
+            }
+
+            // Check if the variant has an image URL
+            final bool hasImageUrl = option.value != null &&
+                (option.value!.startsWith('http') ||
+                    option.value!.startsWith('//'));
+
+            // Use parsed RGB color if available, otherwise try to extract from name
+            final Color displayColor =
+                colorFromRGB ?? _extractColorFromName(colorText) ?? Colors.grey;
+
+            // If using image URL
+            if (hasImageUrl) {
+              final imageUrl = _fixImageUrl(option.value!);
+
+              return Stack(
+                children: [
+                  // Color swatch with image
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Selected color: $colorText')),
+                      );
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color:
+                              isSelected ? Colors.black : Colors.grey.shade300,
+                          width: isSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(7),
+                        child: CachedImageWidget(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          brandName: widget.productInfo.brand,
+                          colorName: colorText,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Selection indicator
+                  if (isSelected)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.check,
+                          size: 12,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+
+                  // Color name below swatch
+                  Positioned(
+                    bottom: -20,
+                    left: 0,
+                    right: 0,
+                    child: Text(
+                      colorText,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
+                        color: Colors.black87,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              );
+            }
+            // If using color
+            else {
+              return Column(
+                children: [
+                  // Color swatch
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Selected color: $colorText')),
+                      );
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: displayColor,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color:
+                              isSelected ? Colors.black : Colors.grey.shade300,
+                          width: isSelected ? 2 : 1,
+                        ),
+                        boxShadow: isSelected
+                            ? [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.15),
+                                  blurRadius: 4,
+                                  offset: Offset(0, 2),
+                                )
+                              ]
+                            : null,
+                      ),
+                      child: isSelected
+                          ? Center(
+                              child: Icon(
+                                Icons.check,
+                                color: _isLightColor(displayColor)
+                                    ? Colors.black
+                                    : Colors.white,
+                                size: 20,
+                              ),
+                            )
+                          : null,
+                    ),
+                  ),
+
+                  // Color name
+                  SizedBox(height: 4),
+                  SizedBox(
+                    width: 52,
+                    child: Text(
+                      colorText,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade800,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              );
+            }
+          }).toList(),
+        ),
+        SizedBox(height: 24), // Add some space below color section
+      ],
+    );
+  }
+
+  // Enhanced size variant display for Zara
+  Widget _buildSizeVariants(List<VariantOption> sizeOptions) {
+    // Filter out nonsensical or placeholder options
+    final filteredOptions = sizeOptions.where((option) {
+      final String lowerText = option.text.toLowerCase().trim();
+
+      // Skip options that look like placeholders or form fields
+      return !lowerText.contains('select') &&
+          !lowerText.contains('choose') &&
+          !lowerText.contains('i\'d rather not say');
+    }).toList();
+
+    // If no valid options after filtering, don't show the section
+    if (filteredOptions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Text(
+            'Sizes',
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
         ),
@@ -242,157 +443,113 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
           spacing: 8,
           runSpacing: 8,
           children: filteredOptions.map((option) {
-            // For colors
-            if (title == 'Colors' &&
-                option.value != null &&
-                option.value!.startsWith('rgb')) {
-              // Try to parse the color
-              Color? color;
+            // Parse inStock information from value
+            bool isInStock =
+                true; // Default to true unless explicitly marked false
+
+            if (option.value != null) {
               try {
-                final rgbValues =
-                    RegExp(r'rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)')
-                        .firstMatch(option.value!);
-                if (rgbValues != null) {
-                  color = Color.fromRGBO(
-                    int.parse(rgbValues.group(1)!),
-                    int.parse(rgbValues.group(2)!),
-                    int.parse(rgbValues.group(3)!),
-                    1.0,
-                  );
+                // Check different formats of how stock info might be stored
+                if (option.value!.contains('"inStock"')) {
+                  // For the new JSON format from Zara extractor
+                  final valueMap =
+                      jsonDecode(option.value!) as Map<String, dynamic>;
+                  isInStock = valueMap['inStock'] ?? true;
+                } else if (option.value!.contains('out of stock') ||
+                    option.value!.contains('unavailable') ||
+                    option.value!.contains('sold out')) {
+                  // Text-based indicators
+                  isInStock = false;
                 }
               } catch (e) {
-                debugPrint('Error parsing color: $e');
+                debugPrint('Error parsing size value: $e');
+                // If parse fails, assume it's in stock
               }
-
-              return InkWell(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Selected color: ${option.text}')),
-                  );
-                },
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: color ?? Colors.grey,
-                    border: Border.all(
-                      color: option.selected ? Colors.black : Colors.grey,
-                      width: option.selected ? 2 : 1,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: option.selected
-                      ? const Icon(Icons.check, color: Colors.white, size: 20)
-                      : null,
-                ),
-              );
-            } else if (title == 'Colors' &&
-                option.value != null &&
-                (option.value!.startsWith('http') ||
-                    option.value!.startsWith('//'))) {
-              // Fix for relative URLs (//media.gucci.com/...)
-              String imageUrl = _fixImageUrl(option.value!);
-
-              return InkWell(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Selected color: ${option.text}')),
-                  );
-                },
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: option.selected ? Colors.black : Colors.grey,
-                      width: option.selected ? 2 : 1,
-                    ),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(5),
-                    child: Stack(
-                      children: [
-                        // Try to load cached image
-                        CachedImageWidget(
-                          imageUrl: imageUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            // Return colored container with text as fallback
-                            return Container(
-                              color: Colors.grey[300],
-                              child: Center(
-                                child: Text(
-                                  option.text.isNotEmpty
-                                      ? option.text[0].toUpperCase()
-                                      : '?',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-
-                        // Show selected indicator
-                        if (option.selected)
-                          Positioned(
-                            right: 0,
-                            bottom: 0,
-                            child: Container(
-                              padding: EdgeInsets.all(2),
-                              color: Colors.black.withOpacity(0.5),
-                              child: Icon(
-                                Icons.check,
-                                size: 12,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            } else {
-              // For sizes and other variants
-              return InkWell(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text(
-                            'Selected ${title.toLowerCase().substring(0, title.length - 1)}: ${option.text}')),
-                  );
-                },
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: option.selected ? Colors.black : Colors.grey[300]!,
-                      width: option.selected ? 2 : 1,
-                    ),
-                    borderRadius: BorderRadius.circular(4),
-                    color: option.selected
-                        ? Colors.black.withOpacity(0.05)
-                        : Colors.white,
-                  ),
-                  child: Text(
-                    option.text,
-                    style: TextStyle(
-                      fontWeight:
-                          option.selected ? FontWeight.bold : FontWeight.normal,
-                      color: option.selected ? Colors.black : Colors.black87,
-                    ),
-                  ),
-                ),
-              );
             }
+
+            return InkWell(
+              onTap: isInStock
+                  ? () {
+                      HapticFeedback.lightImpact();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content: Text('Selected size: ${option.text}')),
+                      );
+                    }
+                  : () {
+                      // Show a message that the size is unavailable
+                      HapticFeedback.heavyImpact();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Size ${option.text} is out of stock'),
+                          backgroundColor: Colors.red.shade700,
+                        ),
+                      );
+                    },
+              borderRadius: BorderRadius.circular(4),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: !isInStock
+                        ? Colors.grey.shade300
+                        : option.selected
+                            ? Colors.black
+                            : Colors.grey.shade300,
+                    width: option.selected ? 2 : 1,
+                  ),
+                  borderRadius: BorderRadius.circular(4),
+                  color: !isInStock
+                      ? Colors.grey.shade100
+                      : option.selected
+                          ? Colors.black.withOpacity(0.05)
+                          : Colors.white,
+                ),
+                child: Stack(
+                  children: [
+                    Text(
+                      option.text,
+                      style: TextStyle(
+                        fontWeight: option.selected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        color: !isInStock
+                            ? Colors.grey.shade400
+                            : option.selected
+                                ? Colors.black
+                                : Colors.black87,
+                        decoration:
+                            !isInStock ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+
+                    // Show a small indicator for out of stock sizes
+                    if (!isInStock)
+                      Positioned(
+                        right: -4,
+                        top: -4,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade400,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.remove,
+                            size: 8,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
           }).toList(),
         ),
-        const SizedBox(height: 8),
       ],
     );
   }
@@ -410,11 +567,16 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       return 'Pre-Order';
     }
 
-    return 'In Stock';
+    return availability;
   }
 
   @override
   Widget build(BuildContext context) {
+    final productHasBrand = widget.productInfo.brand != null &&
+        widget.productInfo.brand!.isNotEmpty;
+    final isZara = widget.productInfo.brand?.toLowerCase() == 'zara' ||
+        widget.productInfo.url.toLowerCase().contains('zara.com');
+
     return Container(
       padding: const EdgeInsets.all(16),
       height: MediaQuery.of(context).size.height * 0.85,
@@ -461,51 +623,32 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                         child: CachedImageWidget(
                           imageUrl: _fixImageUrl(widget.productInfo.imageUrl!),
                           fit: BoxFit.contain,
-                          loadingBuilder: (context, child, loadingProgress) {
-                            return Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  CircularProgressIndicator(),
-                                  SizedBox(height: 16),
-                                  Text(
-                                    'Loading image...',
-                                    style: TextStyle(color: Colors.grey[600]),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                          errorBuilder: (context, error, stackTrace) {
-                            // Log error but don't call setState
-                            debugPrint('Error loading product image: $error');
-                            debugPrint(
-                                'Image URL: ${widget.productInfo.imageUrl}');
-
-                            return Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.shopping_bag_outlined,
-                                      size: 70, color: Colors.grey[400]),
-                                  SizedBox(height: 16),
-                                  Text(
-                                    widget.productInfo.title ?? 'Product',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                      color: Colors.grey[600],
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
+                          brandName: widget.productInfo.brand,
+                          productTitle: widget.productInfo.title,
                         ),
                       ),
                     ),
                   const SizedBox(height: 16),
+
+                  // Brand info (if available)
+                  if (productHasBrand)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        widget.productInfo.brand!,
+                        style: TextStyle(
+                          color: Colors.grey.shade800,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
 
                   // Price information
                   _buildInfoRow('Price:', widget.productInfo.formattedPrice,
@@ -516,32 +659,92 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                         widget.productInfo.formattedOriginalPrice,
                         style: const TextStyle(
                             decoration: TextDecoration.lineThrough)),
+
+                  // Availability if present
+                  if (widget.productInfo.availability != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Availability:',
+                            style: TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          SizedBox(width: 8),
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: _formatAvailability(
+                                          widget.productInfo.availability) ==
+                                      'In Stock'
+                                  ? Colors.green.withOpacity(0.1)
+                                  : Colors.red.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              _formatAvailability(
+                                  widget.productInfo.availability),
+                              style: TextStyle(
+                                color: _formatAvailability(
+                                            widget.productInfo.availability) ==
+                                        'In Stock'
+                                    ? Colors.green.shade800
+                                    : Colors.red.shade800,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 16),
 
-                  // Color variants
+                  // Color variants with improved display
                   if (widget.productInfo.variants != null &&
                       widget.productInfo.variants!.containsKey('colors') &&
                       widget.productInfo.variants!['colors']!.isNotEmpty)
-                    _buildVariantSection(context, 'Colors',
+                    _buildColorVariants(
                         widget.productInfo.variants!['colors']!),
 
-                  // Size variants
+                  // Size variants with improved display
                   if (widget.productInfo.variants != null &&
                       widget.productInfo.variants!.containsKey('sizes') &&
                       widget.productInfo.variants!['sizes']!.isNotEmpty)
-                    _buildVariantSection(context, 'Sizes',
-                        widget.productInfo.variants!['sizes']!),
+                    _buildSizeVariants(widget.productInfo.variants!['sizes']!),
+
+                  // SKU if available
+                  if (widget.productInfo.sku != null &&
+                      widget.productInfo.sku!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: Text(
+                        'SKU: ${widget.productInfo.sku}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
 
                   // Description - only show if not empty and not null
                   if (widget.productInfo.description != null &&
                       widget.productInfo.description!.trim().isNotEmpty &&
                       !widget.productInfo.description!
                           .contains('schema.org')) ...[
-                    const SizedBox(height: 16),
-                    const Text('Description:',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    Text(widget.productInfo.description!),
+                    const SizedBox(height: 24),
+                    const Text('Description',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.productInfo.description!,
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                        height: 1.5,
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -594,14 +797,9 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
 
   // Helper method to fix image URLs
   String _fixImageUrl(String url) {
-    const String _DEBUG_TAG = "[URL_FIX_DEBUG]";
-    debugPrint('$_DEBUG_TAG Original URL: $url');
-
     // Handle protocol-relative URLs (//media.gucci.com/...)
     if (url.startsWith('//')) {
-      String fixed = 'https:$url';
-      debugPrint('$_DEBUG_TAG Fixed protocol-relative URL: $fixed');
-      return fixed;
+      return 'https:$url';
     }
 
     // Handle relative URLs (without domain)
@@ -610,26 +808,123 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       String domain = 'www.gucci.com';
       if (url.contains('/tr/')) {
         domain = 'www.gucci.com/tr';
+      } else if (widget.productInfo.url.contains('zara.com')) {
+        domain = 'www.zara.com';
       }
 
-      String fixed = 'https://$domain$url';
-      debugPrint('$_DEBUG_TAG Fixed relative URL: $fixed');
-      return fixed;
+      return 'https://$domain$url';
     }
 
-    // Handle encoded URLs
-    if (url.contains('%')) {
-      try {
-        String decoded = Uri.decodeFull(url);
-        debugPrint('$_DEBUG_TAG Decoded URL: $decoded');
-        return decoded;
-      } catch (e) {
-        debugPrint('$_DEBUG_TAG Error decoding URL: $e');
-      }
-    }
-
-    // No changes needed
-    debugPrint('$_DEBUG_TAG URL unchanged');
     return url;
+  }
+
+  // Helper function to parse RGB color string
+  Color? _parseRgbColor(String value) {
+    if (!value.contains('rgb')) return null;
+
+    try {
+      // Format: rgb(R, G, B)
+      final rgbRegex = RegExp(r'rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)');
+      final match = rgbRegex.firstMatch(value);
+
+      if (match != null && match.groupCount >= 3) {
+        final r = int.parse(match.group(1)!);
+        final g = int.parse(match.group(2)!);
+        final b = int.parse(match.group(3)!);
+        return Color.fromRGBO(r, g, b, 1.0);
+      }
+    } catch (e) {
+      debugPrint('Failed to parse RGB value: $e');
+    }
+
+    return null;
+  }
+
+  // Extract a color from a color name
+  Color? _extractColorFromName(String colorName) {
+    final Map<String, Color> commonColors = {
+      'black': Colors.black,
+      'white': Colors.white,
+      'red': Colors.red.shade800,
+      'blue': Colors.blue.shade800,
+      'navy': Colors.indigo.shade900,
+      'green': Colors.green.shade800,
+      'olive': const Color.fromARGB(255, 16, 82, 16),
+      'yellow': Colors.amber,
+      'orange': Colors.orange,
+      'purple': Colors.purple,
+      'pink': Colors.pink,
+      'grey': Colors.grey,
+      'gray': Colors.grey,
+      'silver': Colors.grey.shade300,
+      'gold': Color(0xFFD4AF37),
+      'brown': Color(0xFF795548),
+      'tan': Color(0xFFD2B48C),
+      'beige': Color(0xFFF5F5DC),
+      'ivory': Color(0xFFFFFFF0),
+      'cream': Color(0xFFFFFDD0),
+      'khaki': Color(0xFFC3B091),
+      'maroon': Color(0xFF800000),
+      'burgundy': Color(0xFF800020),
+      'teal': Color(0xFF008080),
+      'turquoise': Color(0xFF40E0D0),
+      'violet': Color(0xFF8000FF),
+      'lavender': Color(0xFFE6E6FA),
+      'magenta': Color(0xFFFF00FF),
+      'coral': Color(0xFFFF7F50),
+      'mint': Color(0xFF98FB98),
+      'rose': Color(0xFFFF007F),
+      'mustard': Color(0xFFE1AD01),
+      'taupe': Color(0xFF483C32),
+      'natural': Color(0xFFE8D4AD),
+      'ecru': Color(0xFFD3D3A4),
+    };
+
+    // Convert to lowercase for case-insensitive matching
+    final lowerColorName = colorName.toLowerCase();
+
+    // Check exact match
+    for (final entry in commonColors.entries) {
+      if (lowerColorName == entry.key) {
+        return entry.value;
+      }
+    }
+
+    // Check partial match (color name might be like "Dark Blue" or "Navy Blue")
+    for (final entry in commonColors.entries) {
+      if (lowerColorName.contains(entry.key)) {
+        // For partial matches, we might want to modify the color based on modifiers
+        if (lowerColorName.contains('dark') ||
+            lowerColorName.contains('deep')) {
+          return _darkenColor(entry.value);
+        } else if (lowerColorName.contains('light') ||
+            lowerColorName.contains('pale')) {
+          return _lightenColor(entry.value);
+        }
+        return entry.value;
+      }
+    }
+
+    // No match found
+    return null;
+  }
+
+  // Darken a color
+  Color _darkenColor(Color color) {
+    final hsl = HSLColor.fromColor(color);
+    return hsl.withLightness((hsl.lightness - 0.1).clamp(0.0, 1.0)).toColor();
+  }
+
+  // Lighten a color
+  Color _lightenColor(Color color) {
+    final hsl = HSLColor.fromColor(color);
+    return hsl.withLightness((hsl.lightness + 0.1).clamp(0.0, 1.0)).toColor();
+  }
+
+  bool _isLightColor(Color color) {
+    // Calculate the perceived brightness
+    final brightness =
+        (299 * color.red + 587 * color.green + 114 * color.blue) / 1000;
+    return brightness > 128;
   }
 }

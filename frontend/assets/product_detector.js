@@ -1908,6 +1908,598 @@ const GucciExtractor = {
   },
 };
 
+const ZaraExtractor = {
+  // Check if the current page is Zara
+  isZara: function () {
+    return window.location.hostname.includes("zara.com");
+  },
+
+  // Extract product info from Zara site
+  extract: function () {
+    Logger.info("Extracting product info from Zara store");
+
+    try {
+      const result = BaseExtractor.createResultObject();
+      result.extractionMethod = "zara";
+      result.brand = "Zara"; // Set brand directly
+
+      // Extract product title
+      const titleSelectors = [
+        ".product-detail-info h1",
+        ".product-detail-info__header h1",
+        '[data-qa-qualifier="product-name"]',
+        ".product-detail-card-info__title h1",
+      ];
+
+      const titleElement = DOMUtils.querySelector(titleSelectors);
+      if (titleElement) {
+        result.title = DOMUtils.getTextContent(titleElement);
+        Logger.debug(`Found Zara title: ${result.title}`);
+      }
+
+      // Extract product price
+      const priceSelectors = [
+        ".price__amount",
+        '[data-qa-qualifier="product-price"]',
+        ".product-detail-info__price span",
+        ".product-detail-card-info__prices .money-amount__main",
+      ];
+
+      const priceElement = DOMUtils.querySelector(priceSelectors);
+      if (priceElement) {
+        const priceText = DOMUtils.getTextContent(priceElement);
+        result.price = FormatUtils.formatPrice(priceText);
+        result.currency = FormatUtils.detectCurrency(priceText);
+        Logger.debug(`Found Zara price: ${result.price} ${result.currency}`);
+      }
+
+      // Extract original price (for sales)
+      const originalPriceSelectors = [
+        ".price__amount--old",
+        ".product-detail-info__price .line-through",
+        ".product-detail-card-info__prices .money-amount__main--crossed-out",
+      ];
+
+      const originalPriceElement = DOMUtils.querySelector(
+        originalPriceSelectors
+      );
+      if (originalPriceElement) {
+        const originalPriceText = DOMUtils.getTextContent(originalPriceElement);
+        result.originalPrice = FormatUtils.formatPrice(originalPriceText);
+        Logger.debug(`Found Zara original price: ${result.originalPrice}`);
+      }
+
+      // Extract product description
+      const descriptionSelectors = [
+        ".product-detail-description",
+        ".product-detail-info__description",
+        '[data-qa-qualifier="product-description"]',
+      ];
+
+      const descriptionElement = DOMUtils.querySelector(descriptionSelectors);
+      if (descriptionElement) {
+        result.description = DOMUtils.getTextContent(descriptionElement);
+        Logger.debug("Found Zara description");
+      }
+
+      // Extract product SKU/reference
+      const skuSelectors = [
+        ".product-detail-info__reference",
+        '[data-qa-qualifier="product-reference"]',
+        ".product-reference span",
+      ];
+
+      const skuElement = DOMUtils.querySelector(skuSelectors);
+      if (skuElement) {
+        result.sku = DOMUtils.getTextContent(skuElement).replace(/\D/g, "");
+        Logger.debug(`Found Zara SKU: ${result.sku}`);
+      }
+
+      // Extract product image
+      this.extractZaraProductImage(result);
+
+      // Extract Zara-specific color variants - completely customized for their HTML structure
+      this.extractZaraColors(result);
+
+      // Extract Zara-specific size variants - handles their unique approach to size display
+      this.extractZaraSizes(result);
+
+      // Check if we have the minimum needed information for success
+      result.success = !!(result.title && result.price);
+
+      return result;
+    } catch (e) {
+      Logger.error("Error extracting from Zara site", e);
+      return null;
+    }
+  },
+
+  // Helper method to extract Zara product image
+  extractZaraProductImage: function (result) {
+    try {
+      // First try to get the main product image
+      const mainImageSelectors = [
+        ".product-detail-images img",
+        ".media-image img",
+        ".product-detail-card-images img",
+      ];
+
+      let imageElement = null;
+
+      // Try each selector
+      for (const selector of mainImageSelectors) {
+        const images = document.querySelectorAll(selector);
+        if (images && images.length > 0) {
+          // Try to find the largest or most visible image
+          for (const img of images) {
+            if (DOMUtils.isVisible(img) && img.naturalWidth > 200) {
+              imageElement = img;
+              break;
+            }
+          }
+
+          // If we didn't find a good visible image, just use the first one
+          if (!imageElement && images.length > 0) {
+            imageElement = images[0];
+          }
+
+          if (imageElement) break;
+        }
+      }
+
+      // If we found an image, extract its URL
+      if (imageElement) {
+        // Try to get high resolution version first
+        const srcset = imageElement.getAttribute("srcset");
+        if (srcset) {
+          // Parse srcset to get the highest resolution image
+          const srcsetParts = srcset.split(",");
+          let largestImage = "";
+          let largestWidth = 0;
+
+          for (const part of srcsetParts) {
+            const [url, width] = part.trim().split(" ");
+            if (width) {
+              const numWidth = parseInt(width.replace("w", ""));
+              if (numWidth > largestWidth) {
+                largestWidth = numWidth;
+                largestImage = url;
+              }
+            }
+          }
+
+          if (largestImage) {
+            result.imageUrl = FormatUtils.makeUrlAbsolute(largestImage);
+            Logger.debug(`Found Zara image from srcset: ${result.imageUrl}`);
+            return;
+          }
+        }
+
+        // Fallback to regular src attribute
+        const src = imageElement.getAttribute("src");
+        if (src) {
+          result.imageUrl = FormatUtils.makeUrlAbsolute(src);
+          Logger.debug(`Found Zara image: ${result.imageUrl}`);
+          return;
+        }
+
+        // Last resort - try data-src for lazy-loaded images
+        const dataSrc = imageElement.getAttribute("data-src");
+        if (dataSrc) {
+          result.imageUrl = FormatUtils.makeUrlAbsolute(dataSrc);
+          Logger.debug(`Found Zara image from data-src: ${result.imageUrl}`);
+          return;
+        }
+      }
+
+      // If we still don't have an image, try to find any large image
+      const bestImage = DOMUtils.findLargestImage();
+      if (bestImage) {
+        result.imageUrl = FormatUtils.makeUrlAbsolute(
+          bestImage.getAttribute("src") || bestImage.getAttribute("data-src")
+        );
+        Logger.debug(
+          `Found Zara image using findLargestImage: ${result.imageUrl}`
+        );
+      }
+    } catch (e) {
+      Logger.warn("Error extracting Zara product image", e);
+    }
+  },
+
+  // Helper method to extract Zara-specific colors - based on the provided HTML structure
+  extractZaraColors: function (result) {
+    try {
+      Logger.info("Extracting Zara-specific colors");
+
+      // First try the color selector from the provided HTML
+      const colorSelector = ".product-detail-color-selector__colors";
+      const colorContainer = document.querySelector(colorSelector);
+
+      if (colorContainer) {
+        const colorItems = colorContainer.querySelectorAll(
+          ".product-detail-color-selector__color"
+        );
+        Logger.debug(`Found ${colorItems.length} Zara color options`);
+
+        for (const colorItem of colorItems) {
+          // Check if this color is selected
+          const isSelected = !!colorItem.querySelector(
+            ".product-detail-color-selector__color-button--is-selected"
+          );
+
+          // Get color area to extract the RGB value
+          const colorArea = colorItem.querySelector(
+            ".product-detail-color-selector__color-area"
+          );
+          if (!colorArea) continue;
+
+          // Try to get color name from screen reader text
+          const screenReaderText = colorItem.querySelector(
+            ".screen-reader-text"
+          );
+          let colorName = screenReaderText
+            ? DOMUtils.getTextContent(screenReaderText)
+            : "";
+
+          // If no name found, try to get it from other potential sources
+          if (!colorName) {
+            // Check for aria label on the button
+            const colorButton = colorItem.querySelector("button");
+            if (colorButton) {
+              colorName = colorButton.getAttribute("aria-label") || "";
+            }
+          }
+
+          // Extract RGB color from the style attribute
+          let colorValue = "";
+          const styleAttr = colorArea.getAttribute("style");
+          if (styleAttr) {
+            const rgbMatch = styleAttr.match(/background-color:\s*([^;]+)/);
+            if (rgbMatch && rgbMatch[1]) {
+              colorValue = rgbMatch[1].trim();
+            }
+          }
+
+          // If we have either a name or color value, add to variants
+          if (colorName || colorValue) {
+            // If we have no name but have a color value, create a generic name
+            if (!colorName && colorValue) {
+              colorName = this.generateColorNameFromRgb(colorValue);
+            }
+
+            result.variants.colors.push({
+              text: colorName || "Color Option",
+              selected: isSelected,
+              value: colorValue || colorName,
+            });
+
+            Logger.debug(
+              `Added Zara color: ${colorName}, RGB: ${colorValue}, selected: ${isSelected}`
+            );
+          }
+        }
+
+        // Successfully extracted colors
+        if (result.variants.colors.length > 0) {
+          return;
+        }
+      }
+
+      // If the first method failed, try alternative selectors
+      const alternativeColorSelectors = [
+        ".product-colors .product-color-selector__colors", // Another potential structure
+        ".color-selector-options", // Older Zara sites
+      ];
+
+      for (const selector of alternativeColorSelectors) {
+        const colorItems = document.querySelectorAll(`${selector} > li`);
+        if (colorItems && colorItems.length > 0) {
+          Logger.debug(
+            `Found ${colorItems.length} color options with alternative selector: ${selector}`
+          );
+
+          for (const colorItem of colorItems) {
+            // Check if this color is selected
+            const isSelected =
+              colorItem.classList.contains("is-selected") ||
+              colorItem.classList.contains("selected") ||
+              !!colorItem.querySelector(".selected") ||
+              !!colorItem.querySelector('[aria-selected="true"]');
+
+            // Try different methods to get the color name
+            let colorName = "";
+
+            // Try aria-label first
+            const button = colorItem.querySelector("button");
+            if (button) {
+              colorName = button.getAttribute("aria-label") || "";
+            }
+
+            // Try any element with a title attribute
+            if (!colorName) {
+              const titleElement = colorItem.querySelector("[title]");
+              if (titleElement) {
+                colorName = titleElement.getAttribute("title") || "";
+              }
+            }
+
+            // Try any inner text
+            if (!colorName) {
+              colorName = DOMUtils.getTextContent(colorItem);
+            }
+
+            // Try to extract color from background style
+            let colorValue = "";
+            const colorBlock = colorItem.querySelector('[style*="background"]');
+            if (colorBlock) {
+              const styleAttr = colorBlock.getAttribute("style");
+              if (styleAttr) {
+                const bgMatch = styleAttr.match(
+                  /background(?:-color)?:\s*([^;]+)/
+                );
+                if (bgMatch && bgMatch[1]) {
+                  colorValue = bgMatch[1].trim();
+                }
+              }
+            }
+
+            // Add to color variants if we have enough info
+            if (colorName || colorValue) {
+              // Generate name from color value if needed
+              if (!colorName && colorValue) {
+                colorName = this.generateColorNameFromRgb(colorValue);
+              }
+
+              result.variants.colors.push({
+                text: colorName || "Color Option",
+                selected: isSelected,
+                value: colorValue || colorName,
+              });
+
+              Logger.debug(
+                `Added Zara color (alternative): ${colorName}, value: ${colorValue}`
+              );
+            }
+          }
+
+          // If we found colors, stop searching
+          if (result.variants.colors.length > 0) {
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      Logger.warn("Error extracting Zara colors", e);
+    }
+  },
+
+  // Helper to generate a color name from RGB value
+  generateColorNameFromRgb: function (rgbValue) {
+    // Parse RGB values
+    const rgbMatch = rgbValue.match(
+      /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/
+    );
+    if (!rgbMatch) return "Color";
+
+    const r = parseInt(rgbMatch[1], 10);
+    const g = parseInt(rgbMatch[2], 10);
+    const b = parseInt(rgbMatch[3], 10);
+
+    // Simple algorithm to identify basic colors
+    if (r > 200 && g > 200 && b > 200) return "White";
+    if (r < 50 && g < 50 && b < 50) return "Black";
+
+    if (r > 180 && g < 100 && b < 100) return "Red";
+    if (r < 100 && g > 180 && b < 100) return "Green";
+    if (r < 100 && g < 100 && b > 180) return "Blue";
+
+    if (r > 180 && g > 180 && b < 100) return "Yellow";
+    if (r > 180 && g < 100 && b > 180) return "Purple";
+    if (r < 100 && g > 180 && b > 180) return "Cyan";
+
+    if (r > 180 && g > 100 && b < 100) return "Orange";
+    if (r > 100 && g < 100 && b > 100) return "Purple";
+    if (r > 100 && g > 100 && b < 100) return "Brown";
+
+    // Default for gray tones
+    if (Math.abs(r - g) < 30 && Math.abs(g - b) < 30 && Math.abs(r - b) < 30) {
+      return r < 150 ? "Dark Gray" : "Light Gray";
+    }
+
+    return "Color";
+  },
+
+  // Helper method to extract Zara-specific sizes - based on the provided HTML structure
+  extractZaraSizes: function (result) {
+    try {
+      Logger.info("Extracting Zara-specific sizes");
+
+      // First try the size selector from the provided HTML structure
+      const sizeSelector = ".size-selector-sizes";
+      const sizeContainer = document.querySelector(sizeSelector);
+
+      if (sizeContainer) {
+        // Get all size elements
+        const sizeItems = sizeContainer.querySelectorAll(
+          ".size-selector-sizes__size"
+        );
+        Logger.debug(`Found ${sizeItems.length} Zara size options`);
+
+        for (const sizeItem of sizeItems) {
+          // Check if this size is enabled (in stock)
+          const isEnabled = sizeItem.classList.contains(
+            "size-selector-sizes-size--enabled"
+          );
+
+          // Get size label
+          const sizeLabel = sizeItem.querySelector(
+            ".size-selector-sizes-size__label"
+          );
+          if (!sizeLabel) continue;
+
+          const sizeText = DOMUtils.getTextContent(sizeLabel);
+          if (!sizeText) continue;
+
+          // Check if this size is selected
+          const isSelected =
+            sizeItem.classList.contains("selected") ||
+            sizeItem.classList.contains("size-selector-sizes-size--selected") ||
+            !!sizeItem.querySelector('[aria-selected="true"]');
+
+          // Create a JSON string value that includes the inStock information
+          // This is the key change - we're formatting the value as a JSON string that can be parsed by Dart
+          const valueObj = {
+            size: sizeText,
+            inStock: isEnabled,
+          };
+          const valueJson = JSON.stringify(valueObj);
+
+          // Add to size variants
+          result.variants.sizes.push({
+            text: sizeText,
+            selected: isSelected,
+            value: valueJson, // Store as JSON string so Dart can parse it
+          });
+
+          Logger.debug(
+            `Added Zara size: ${sizeText}, in stock: ${isEnabled}, selected: ${isSelected}`
+          );
+        }
+
+        // Successfully extracted sizes
+        if (result.variants.sizes.length > 0) {
+          return;
+        }
+      }
+
+      // Try alternative size selectors if the first method failed
+      const alternativeSizeSelectors = [
+        ".product-size-selector .product-size-info-name",
+        ".size-selector-option",
+        ".product-sizes [data-qa-option]",
+      ];
+
+      for (const selector of alternativeSizeSelectors) {
+        const sizeItems = document.querySelectorAll(selector);
+        if (sizeItems && sizeItems.length > 0) {
+          Logger.debug(
+            `Found ${sizeItems.length} size options with alternative selector: ${selector}`
+          );
+
+          for (const sizeItem of sizeItems) {
+            // Check attributes to determine if this size is in stock
+            const isEnabled =
+              !sizeItem.hasAttribute("disabled") &&
+              !sizeItem.classList.contains("disabled") &&
+              !sizeItem.classList.contains("product-size--out-of-stock");
+
+            // Get size text - try multiple approaches
+            let sizeText = DOMUtils.getTextContent(sizeItem);
+
+            // If the element itself doesn't have text, look for a child element
+            if (!sizeText) {
+              const sizeLabel = sizeItem.querySelector(
+                ".size-name, .size-label, [data-qa-size]"
+              );
+              if (sizeLabel) {
+                sizeText = DOMUtils.getTextContent(sizeLabel);
+              }
+            }
+
+            if (!sizeText) continue;
+
+            // Check if this size is selected
+            const isSelected =
+              sizeItem.classList.contains("selected") ||
+              sizeItem.classList.contains("product-size--is-selected") ||
+              (sizeItem.hasAttribute("aria-selected") &&
+                sizeItem.getAttribute("aria-selected") === "true");
+
+            // Create a JSON string value that includes the inStock information
+            const valueObj = {
+              size: sizeText,
+              inStock: isEnabled,
+            };
+            const valueJson = JSON.stringify(valueObj);
+
+            // Add to size variants
+            result.variants.sizes.push({
+              text: sizeText,
+              selected: isSelected,
+              value: valueJson,
+            });
+
+            Logger.debug(
+              `Added Zara size (alternative): ${sizeText}, in stock: ${isEnabled}`
+            );
+          }
+
+          // If we found sizes, stop searching
+          if (result.variants.sizes.length > 0) {
+            break;
+          }
+        }
+      }
+
+      // If we still didn't find sizes, try one more approach - look for a hidden size selector
+      if (result.variants.sizes.length === 0) {
+        // Try to find the size button which might open the size selector
+        const sizeButton = document.querySelector(
+          'button[data-qa-action="open-size-selector"]'
+        );
+        if (sizeButton) {
+          Logger.debug(
+            'Found "Add" button for size selection, but sizes may be hidden'
+          );
+
+          // Even though the size selector might be hidden, the elements could still be in the DOM
+          const hiddenSizes = document.querySelectorAll(
+            '.size-selector-sizes-size__label, [data-qa-qualifier="size-selector-sizes-size-label"]'
+          );
+
+          if (hiddenSizes && hiddenSizes.length > 0) {
+            Logger.debug(
+              `Found ${hiddenSizes.length} potentially hidden size elements`
+            );
+
+            for (const sizeElem of hiddenSizes) {
+              const sizeText = DOMUtils.getTextContent(sizeElem);
+              if (!sizeText) continue;
+
+              // For hidden sizes, we can't determine if they're selected
+              // We assume they're in stock unless otherwise indicated
+              const sizeContainer = sizeElem.closest(
+                "li, .size-selector-sizes-size"
+              );
+              const isEnabled = sizeContainer
+                ? !sizeContainer.classList.contains("disabled") &&
+                  !sizeContainer.classList.contains("out-of-stock")
+                : true;
+
+              // Create a JSON string value that includes the inStock information
+              const valueObj = {
+                size: sizeText,
+                inStock: isEnabled,
+              };
+              const valueJson = JSON.stringify(valueObj);
+
+              result.variants.sizes.push({
+                text: sizeText,
+                selected: false, // Can't determine for hidden sizes
+                value: valueJson,
+              });
+
+              Logger.debug(`Added Zara hidden size: ${sizeText}`);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      Logger.warn("Error extracting Zara sizes", e);
+    }
+  },
+};
 // ==================== Main Product Extractor ====================
 
 // Main product extractor that orchestrates the extraction process
@@ -1933,6 +2525,15 @@ const ProductExtractor = {
         const gucciResult = GucciExtractor.extract();
         if (gucciResult && gucciResult.success) {
           return gucciResult;
+        }
+      }
+
+      // Check for Zara site
+      if (ZaraExtractor.isZara()) {
+        Logger.info("Detected Zara site, using Zara extractor");
+        const zaraResult = ZaraExtractor.extract();
+        if (zaraResult && zaraResult.success) {
+          return zaraResult;
         }
       }
 
