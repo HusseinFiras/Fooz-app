@@ -4,6 +4,12 @@ import '../models/product_info.dart';
 import '../models/variant_option.dart';
 import '../services/cart_service.dart';
 import '../services/favorites_service.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart'; // For ImmutableBuffer
+import '../widgets/cached_image_widget.dart';
+
+const String _DEBUG_TAG = "[IMG_DEBUG]";
 
 class ProductDetailsBottomSheet extends StatefulWidget {
   final ProductInfo productInfo;
@@ -305,19 +311,47 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(5),
-                    child: Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        debugPrint(
-                            'Error loading color image: $error, URL: $imageUrl');
-                        // Show error state but still keep UI clean
-                        return Container(
-                          color: Colors.grey[300],
-                          child: const Icon(Icons.broken_image,
-                              size: 20, color: Colors.white54),
-                        );
-                      },
+                    child: Stack(
+                      children: [
+                        // Try to load cached image
+                        CachedImageWidget(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            // Return colored container with text as fallback
+                            return Container(
+                              color: Colors.grey[300],
+                              child: Center(
+                                child: Text(
+                                  option.text.isNotEmpty
+                                      ? option.text[0].toUpperCase()
+                                      : '?',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+
+                        // Show selected indicator
+                        if (option.selected)
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: EdgeInsets.all(2),
+                              color: Colors.black.withOpacity(0.5),
+                              child: Icon(
+                                Icons.check,
+                                size: 12,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -424,27 +458,16 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
-                        child: Image.network(
-                          _fixImageUrl(widget.productInfo.imageUrl!),
+                        child: CachedImageWidget(
+                          imageUrl: _fixImageUrl(widget.productInfo.imageUrl!),
                           fit: BoxFit.contain,
                           loadingBuilder: (context, child, loadingProgress) {
-                            if (loadingProgress == null) {
-                              // Image loaded successfully
-                              return child;
-                            }
                             return Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  CircularProgressIndicator(
-                                    value: loadingProgress.expectedTotalBytes !=
-                                            null
-                                        ? loadingProgress
-                                                .cumulativeBytesLoaded /
-                                            loadingProgress.expectedTotalBytes!
-                                        : null,
-                                  ),
-                                  const SizedBox(height: 16),
+                                  CircularProgressIndicator(),
+                                  SizedBox(height: 16),
                                   Text(
                                     'Loading image...',
                                     style: TextStyle(color: Colors.grey[600]),
@@ -458,33 +481,23 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                             debugPrint('Error loading product image: $error');
                             debugPrint(
                                 'Image URL: ${widget.productInfo.imageUrl}');
-                            debugPrint(
-                                'Fixed URL: ${_fixImageUrl(widget.productInfo.imageUrl!)}');
 
                             return Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Icon(Icons.broken_image, size: 50),
-                                  const SizedBox(height: 8),
-                                  Text('Image could not be loaded',
-                                      style:
-                                          TextStyle(color: Colors.grey[600])),
-                                  Padding(
-                                    padding: const EdgeInsets.all(8.0),
-                                    child: Text(
-                                      'Error: ${error.toString()}',
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey[500]),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
+                                  Icon(Icons.shopping_bag_outlined,
+                                      size: 70, color: Colors.grey[400]),
+                                  SizedBox(height: 16),
                                   Text(
-                                      'URL: ${_fixImageUrl(widget.productInfo.imageUrl!)}',
-                                      style: TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.grey[500])),
+                                    widget.productInfo.title ?? 'Product',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: Colors.grey[600],
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
                                 ],
                               ),
                             );
@@ -581,10 +594,42 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
 
   // Helper method to fix image URLs
   String _fixImageUrl(String url) {
+    const String _DEBUG_TAG = "[URL_FIX_DEBUG]";
+    debugPrint('$_DEBUG_TAG Original URL: $url');
+
     // Handle protocol-relative URLs (//media.gucci.com/...)
     if (url.startsWith('//')) {
-      return 'https:$url';
+      String fixed = 'https:$url';
+      debugPrint('$_DEBUG_TAG Fixed protocol-relative URL: $fixed');
+      return fixed;
     }
+
+    // Handle relative URLs (without domain)
+    if (url.startsWith('/') && !url.startsWith('//')) {
+      // Determine the domain based on URL patterns
+      String domain = 'www.gucci.com';
+      if (url.contains('/tr/')) {
+        domain = 'www.gucci.com/tr';
+      }
+
+      String fixed = 'https://$domain$url';
+      debugPrint('$_DEBUG_TAG Fixed relative URL: $fixed');
+      return fixed;
+    }
+
+    // Handle encoded URLs
+    if (url.contains('%')) {
+      try {
+        String decoded = Uri.decodeFull(url);
+        debugPrint('$_DEBUG_TAG Decoded URL: $decoded');
+        return decoded;
+      } catch (e) {
+        debugPrint('$_DEBUG_TAG Error decoding URL: $e');
+      }
+    }
+
+    // No changes needed
+    debugPrint('$_DEBUG_TAG URL unchanged');
     return url;
   }
 }

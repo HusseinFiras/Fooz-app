@@ -2,7 +2,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-
+import '../services/image_cache_service.dart';
 import '../models/product_info.dart';
 import '../services/data_service.dart';
 import '../services/webview_service.dart';
@@ -57,7 +57,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
     setState(() {
       // If an initial URL is provided, use it; otherwise use the default URL for the site
-      _currentUrl = widget.initialUrl ?? _dataService.getUrlForIndex(_currentSiteIndex);
+      _currentUrl =
+          widget.initialUrl ?? _dataService.getUrlForIndex(_currentSiteIndex);
     });
 
     // Initialize webview with current URL
@@ -70,6 +71,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
   @override
   void dispose() {
     _loadingTimer?.cancel();
+    ImageCacheService().clearCache();
     super.dispose();
   }
 
@@ -104,7 +106,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
       if (newProductInfo.isProductPage && newProductInfo.success) {
         productInfo = newProductInfo;
         isProductPage = true;
-        
+
         // Automatically hide loading indicator when product info is detected
         isLoading = false;
       } else {
@@ -120,7 +122,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
     setState(() {
       _currentUrl = url;
-      
+
       // Reset product state when URL changes
       // This helps ensure we don't show product info on non-product pages
       if (!isLoading) {
@@ -182,73 +184,74 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   // Helper function to determine if we should show the product card
   bool _shouldShowProductCard() {
-    return productInfo != null && 
-           productInfo!.success == true && 
-           isProductPage == true && 
-           productInfo!.price != null;
+    return productInfo != null &&
+        productInfo!.success == true &&
+        isProductPage == true &&
+        productInfo!.price != null;
   }
 
- // Change this method in WebViewScreen
-String _generateSearchUrl(Map<String, String> retailer, String query) {
-  final baseUrl = retailer['url']!;
-  final encodedQuery = Uri.encodeComponent(query);
-  
-  final String domain = Uri.parse(baseUrl).host;
-  
-  switch (domain) {
-    case 'www.gucci.com':
-      return '$baseUrl/search?query=$encodedQuery';
-    case 'www.zara.com':
-      return '$baseUrl/search?q=$encodedQuery';
-    case 'www.stradivarius.com':
-      return '$baseUrl/search?term=$encodedQuery';
-    case 'www.cartier.com':
-      return '$baseUrl/search?q=$encodedQuery';
-    case 'www.swarovski.com':
-      return '$baseUrl/search/?q=$encodedQuery';
-    case 'www.guess.eu':
-      return '$baseUrl/search?q=$encodedQuery';
-    case 'shop.mango.com':
-      return '$baseUrl/search?kw=$encodedQuery';
-    case 'www.bershka.com':
-      return '$baseUrl/search?q=$encodedQuery';
-    case 'www.massimodutti.com':
-      return '$baseUrl/search?term=$encodedQuery';
-    case 'www.deepatelier.co':
-      return '$baseUrl/search?q=$encodedQuery';
-    case 'tr.pandora.net':
-      return '$baseUrl/search?q=$encodedQuery';
-    case 'www.miumiu.com':
-      return '$baseUrl/search?q=$encodedQuery';
-    case 'www.victoriassecret.com.tr':
-      return '$baseUrl/search?q=$encodedQuery';
-    case 'www.nocturne.com.tr':
-      return '$baseUrl/arama?q=$encodedQuery';
-    case 'www.beymen.com':
-      return '$baseUrl/search?q=$encodedQuery';
-    case 'www.bluediamond.com.tr':
-      return '$baseUrl/arama?q=$encodedQuery';
-    case 'www.lacoste.com.tr':
-      return '$baseUrl/arama?search=$encodedQuery';
-    case 'tr.mancofficial.com':
-      return '$baseUrl/search?type=product&q=$encodedQuery';
-    case 'www.ipekyol.com.tr':
-      return '$baseUrl/arama?q=$encodedQuery';
-    case 'www.sandro.com.tr':
-      return '$baseUrl/search?q=$encodedQuery';
-    default:
-      // Fallback to a common search pattern
-      return '$baseUrl/search?q=$encodedQuery';
+  // Change this method in WebViewScreen
+  String _generateSearchUrl(Map<String, String> retailer, String query) {
+    final baseUrl = retailer['url']!;
+    final encodedQuery = Uri.encodeComponent(query);
+
+    final String domain = Uri.parse(baseUrl).host;
+
+    switch (domain) {
+      case 'www.gucci.com':
+        return '$baseUrl/search?query=$encodedQuery';
+      case 'www.zara.com':
+        return '$baseUrl/search?q=$encodedQuery';
+      case 'www.stradivarius.com':
+        return '$baseUrl/search?term=$encodedQuery';
+      case 'www.cartier.com':
+        return '$baseUrl/search?q=$encodedQuery';
+      case 'www.swarovski.com':
+        return '$baseUrl/search/?q=$encodedQuery';
+      case 'www.guess.eu':
+        return '$baseUrl/search?q=$encodedQuery';
+      case 'shop.mango.com':
+        return '$baseUrl/search?kw=$encodedQuery';
+      case 'www.bershka.com':
+        return '$baseUrl/search?q=$encodedQuery';
+      case 'www.massimodutti.com':
+        return '$baseUrl/search?term=$encodedQuery';
+      case 'www.deepatelier.co':
+        return '$baseUrl/search?q=$encodedQuery';
+      case 'tr.pandora.net':
+        return '$baseUrl/search?q=$encodedQuery';
+      case 'www.miumiu.com':
+        return '$baseUrl/search?q=$encodedQuery';
+      case 'www.victoriassecret.com.tr':
+        return '$baseUrl/search?q=$encodedQuery';
+      case 'www.nocturne.com.tr':
+        return '$baseUrl/arama?q=$encodedQuery';
+      case 'www.beymen.com':
+        return '$baseUrl/search?q=$encodedQuery';
+      case 'www.bluediamond.com.tr':
+        return '$baseUrl/arama?q=$encodedQuery';
+      case 'www.lacoste.com.tr':
+        return '$baseUrl/arama?search=$encodedQuery';
+      case 'tr.mancofficial.com':
+        return '$baseUrl/search?type=product&q=$encodedQuery';
+      case 'www.ipekyol.com.tr':
+        return '$baseUrl/arama?q=$encodedQuery';
+      case 'www.sandro.com.tr':
+        return '$baseUrl/search?q=$encodedQuery';
+      default:
+        // Fallback to a common search pattern
+        return '$baseUrl/search?q=$encodedQuery';
+    }
   }
-}
 
   void _showSearchDialog() {
     final textController = TextEditingController();
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Search ${_dataService.getNameForIndex(_currentSiteIndex)}'),
+        title:
+            Text('Search ${_dataService.getNameForIndex(_currentSiteIndex)}'),
         content: TextField(
           controller: textController,
           decoration: const InputDecoration(
@@ -281,12 +284,12 @@ String _generateSearchUrl(Map<String, String> retailer, String query) {
       ),
     ).then((searchText) {
       textController.dispose(); // Clean up the controller
-      
+
       if (searchText != null && searchText.isNotEmpty) {
         // Generate search URL for this retailer
         final retailer = _dataService.retailSites[_currentSiteIndex];
         final searchUrl = _generateSearchUrl(retailer, searchText);
-        
+
         // Load the search URL
         _webViewService.loadUrl(searchUrl);
       }
@@ -535,7 +538,7 @@ String _generateSearchUrl(Map<String, String> retailer, String query) {
                   },
                 ),
               ),
-            
+
             // Add floating search button
             Positioned(
               bottom: _shouldShowProductCard() ? 100 : 20,
