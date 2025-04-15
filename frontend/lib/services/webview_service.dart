@@ -1,4 +1,4 @@
-// Updated webview_service.dart
+// lib/services/webview_service.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -124,8 +124,68 @@ class WebViewService {
 
       // Check if we have a valid product message
       if (data['isProductPage'] == true) {
+        // Debug log to track variants being received from JavaScript
+        if (data.containsKey('variants')) {
+          DebugLog.i('Received variants data from JS:',
+              category: DebugLog.PRODUCT, details: data['variants']);
+
+          // Log colors
+          if (data['variants'].containsKey('colors')) {
+            final colors = data['variants']['colors'];
+            DebugLog.d('Colors count: ${colors.length}',
+                category: DebugLog.PRODUCT);
+            for (var color in colors) {
+              DebugLog.d(
+                  'Color variant: ${color['text']}, Selected: ${color['selected']}',
+                  category: DebugLog.PRODUCT);
+            }
+          }
+
+          // Log sizes
+          if (data['variants'].containsKey('sizes')) {
+            final sizes = data['variants']['sizes'];
+            DebugLog.d('Sizes count: ${sizes.length}',
+                category: DebugLog.PRODUCT);
+            for (var size in sizes) {
+              DebugLog.d(
+                  'Size variant: ${size['text']}, Selected: ${size['selected']}',
+                  category: DebugLog.PRODUCT);
+            }
+          }
+        }
+
         // Create product info object from data
         final newProductInfo = ProductInfo.fromJson(data);
+
+        // Debug log to trace what's happening with the variants after conversion
+        if (newProductInfo.variants != null) {
+          DebugLog.i('ProductInfo variants after conversion:',
+              category: DebugLog.PRODUCT, details: newProductInfo.variants);
+
+          // Log colors
+          if (newProductInfo.variants!.containsKey('colors')) {
+            final colors = newProductInfo.variants!['colors'];
+            DebugLog.d('ProductInfo colors count: ${colors?.length}',
+                category: DebugLog.PRODUCT);
+            for (var color in colors ?? []) {
+              DebugLog.d(
+                  'ProductInfo color: ${color.text}, Selected: ${color.selected}, Value: ${color.value}',
+                  category: DebugLog.PRODUCT);
+            }
+          }
+
+          // Log sizes
+          if (newProductInfo.variants!.containsKey('sizes')) {
+            final sizes = newProductInfo.variants!['sizes'];
+            DebugLog.d('ProductInfo sizes count: ${sizes?.length}',
+                category: DebugLog.PRODUCT);
+            for (var size in sizes ?? []) {
+              DebugLog.d(
+                  'ProductInfo size: ${size.text}, Selected: ${size.selected}, Value: ${size.value}',
+                  category: DebugLog.PRODUCT);
+            }
+          }
+        }
 
         // Only notify if we have valid product data (success = true indicates valid product)
         if (newProductInfo.success) {

@@ -1,6 +1,6 @@
 // lib/models/product_info.dart
 import 'package:intl/intl.dart';
-
+import 'package:flutter/foundation.dart';
 import 'variant_option.dart';
 
 class ProductInfo {
@@ -37,23 +37,41 @@ class ProductInfo {
   });
 
   factory ProductInfo.fromJson(Map<String, dynamic> json) {
+    // Debug logging for better variant tracing
+    debugPrint(
+        '[ProductInfo] Processing JSON: isProductPage=${json['isProductPage']}, title=${json['title']}');
+
     // Process variants
     Map<String, List<VariantOption>>? variantMap;
     if (json['variants'] != null) {
+      debugPrint('[ProductInfo] Processing variants data');
       variantMap = {};
 
       // Process colors
       if (json['variants']['colors'] != null) {
-        variantMap['colors'] = List<VariantOption>.from(
-            (json['variants']['colors'] as List)
-                .map((variant) => VariantOption.fromJson(variant)));
+        final colorsList = json['variants']['colors'] as List;
+        debugPrint('[ProductInfo] Processing ${colorsList.length} colors');
+
+        variantMap['colors'] =
+            List<VariantOption>.from(colorsList.map((variant) {
+          // Log each color for debugging
+          debugPrint(
+              '[ProductInfo] Color: text=${variant['text']}, selected=${variant['selected']}, value=${variant['value']}');
+          return VariantOption.fromJson(variant);
+        }));
       }
 
       // Process sizes
       if (json['variants']['sizes'] != null) {
-        variantMap['sizes'] = List<VariantOption>.from(
-            (json['variants']['sizes'] as List)
-                .map((variant) => VariantOption.fromJson(variant)));
+        final sizesList = json['variants']['sizes'] as List;
+        debugPrint('[ProductInfo] Processing ${sizesList.length} sizes');
+
+        variantMap['sizes'] = List<VariantOption>.from(sizesList.map((variant) {
+          // Log each size for debugging
+          debugPrint(
+              '[ProductInfo] Size: text=${variant['text']}, selected=${variant['selected']}, value=${variant['value']}');
+          return VariantOption.fromJson(variant);
+        }));
       }
 
       // Process other options
@@ -61,6 +79,20 @@ class ProductInfo {
         variantMap['otherOptions'] = List<VariantOption>.from(
             (json['variants']['otherOptions'] as List)
                 .map((variant) => VariantOption.fromJson(variant)));
+      }
+    }
+
+    // Log the final variant data
+    if (variantMap != null) {
+      debugPrint(
+          '[ProductInfo] Final variant map: ${variantMap.keys.join(", ")}');
+      if (variantMap.containsKey('colors')) {
+        debugPrint(
+            '[ProductInfo] Final colors count: ${variantMap['colors']?.length}');
+      }
+      if (variantMap.containsKey('sizes')) {
+        debugPrint(
+            '[ProductInfo] Final sizes count: ${variantMap['sizes']?.length}');
       }
     }
 
