@@ -119,82 +119,104 @@ class WebViewService {
   void _handleJavaScriptMessage(JavaScriptMessage message) {
     try {
       final data = jsonDecode(message.message);
-      DebugLog.d('Received product data from JS',
-          category: DebugLog.PRODUCT, details: data);
+
+      debugPrint(
+          '[PD][DEBUG] Received message from JS with keys: ${data.keys.join(", ")}');
+
+// Check for variants and log detailed information
+      if (data.containsKey('variants')) {
+        final variants = data['variants'];
+        debugPrint('[PD][DEBUG] Variants keys: ${variants.keys.join(", ")}');
+
+        if (variants.containsKey('sizes')) {
+          final sizes = variants['sizes'];
+          debugPrint(
+              '[PD][DEBUG] Raw sizes from JS: ${sizes.runtimeType}, count: ${sizes.length}');
+
+          // Log a sample of sizes
+          if (sizes is List && sizes.length > 0) {
+            if (sizes.length >= 3) {
+              debugPrint(
+                  '[PD][DEBUG] First few sizes: ${sizes[0]["text"]}, ${sizes[1]["text"]}, ${sizes[2]["text"]}');
+            }
+          }
+        }
+
+        if (variants.containsKey('colors')) {
+          final colors = variants['colors'];
+          debugPrint(
+              '[PD][DEBUG] Raw colors from JS: ${colors.runtimeType}, count: ${colors.length}');
+        }
+      }
 
       // Check if we have a valid product message
       if (data['isProductPage'] == true) {
-        // Debug log to track variants being received from JavaScript
-        if (data.containsKey('variants')) {
-          DebugLog.i('Received variants data from JS:',
-              category: DebugLog.PRODUCT, details: data['variants']);
+        // ** CRITICAL CHANGE: Make a proper deep copy of the data structure **
+        // Instead of referencing the original data, we create complete copies
+        final Map<String, dynamic> productData =
+            Map<String, dynamic>.from(data);
 
-          // Log colors
-          if (data['variants'].containsKey('colors')) {
-            final colors = data['variants']['colors'];
-            DebugLog.d('Colors count: ${colors.length}',
-                category: DebugLog.PRODUCT);
-            for (var color in colors) {
-              DebugLog.d(
-                  'Color variant: ${color['text']}, Selected: ${color['selected']}',
-                  category: DebugLog.PRODUCT);
+        // Handle variants specifically - this is where data is being lost
+        if (productData.containsKey('variants')) {
+          // Deep copy the variants map first
+          final variantsMap =
+              Map<String, dynamic>.from(productData['variants']);
+
+          // Deep copy individual arrays
+          if (variantsMap.containsKey('colors')) {
+            final List<dynamic> colorsList =
+                List<dynamic>.from(variantsMap['colors']);
+            final List<Map<String, dynamic>> colorsCopy = [];
+
+            // Manually copy each color item to ensure proper structure
+            for (final color in colorsList) {
+              colorsCopy.add(Map<String, dynamic>.from(color));
             }
+
+            // Replace with our deep-copied list
+            variantsMap['colors'] = colorsCopy;
+            debugPrint('[PD][DEBUG] Deep-copied colors: ${colorsCopy.length}');
           }
 
-          // Log sizes
-          if (data['variants'].containsKey('sizes')) {
-            final sizes = data['variants']['sizes'];
-            DebugLog.d('Sizes count: ${sizes.length}',
-                category: DebugLog.PRODUCT);
-            for (var size in sizes) {
-              DebugLog.d(
-                  'Size variant: ${size['text']}, Selected: ${size['selected']}',
-                  category: DebugLog.PRODUCT);
+          // Same for sizes
+          if (variantsMap.containsKey('sizes')) {
+            final List<dynamic> sizesList =
+                List<dynamic>.from(variantsMap['sizes']);
+            final List<Map<String, dynamic>> sizesCopy = [];
+
+            // Manually copy each size item
+            for (final size in sizesList) {
+              sizesCopy.add(Map<String, dynamic>.from(size));
             }
+
+            // Replace with our deep-copied list
+            variantsMap['sizes'] = sizesCopy;
+            debugPrint('[PD][DEBUG] Deep-copied sizes: ${sizesCopy.length}');
           }
+
+          // Replace variants in productData with our deep copied version
+          productData['variants'] = variantsMap;
         }
 
-        // Create product info object from data
-        final newProductInfo = ProductInfo.fromJson(data);
+        // Create product info from our properly copied data
+        final newProductInfo = ProductInfo.fromJson(productData);
 
-        // Debug log to trace what's happening with the variants after conversion
+        // Debug log the result
         if (newProductInfo.variants != null) {
-          DebugLog.i('ProductInfo variants after conversion:',
-              category: DebugLog.PRODUCT, details: newProductInfo.variants);
-
-          // Log colors
+          debugPrint('[PD][DEBUG] Final ProductInfo variants:');
           if (newProductInfo.variants!.containsKey('colors')) {
-            final colors = newProductInfo.variants!['colors'];
-            DebugLog.d('ProductInfo colors count: ${colors?.length}',
-                category: DebugLog.PRODUCT);
-            for (var color in colors ?? []) {
-              DebugLog.d(
-                  'ProductInfo color: ${color.text}, Selected: ${color.selected}, Value: ${color.value}',
-                  category: DebugLog.PRODUCT);
-            }
+            debugPrint(
+                '[PD][DEBUG] - Colors: ${newProductInfo.variants!["colors"]?.length}');
           }
-
-          // Log sizes
           if (newProductInfo.variants!.containsKey('sizes')) {
-            final sizes = newProductInfo.variants!['sizes'];
-            DebugLog.d('ProductInfo sizes count: ${sizes?.length}',
-                category: DebugLog.PRODUCT);
-            for (var size in sizes ?? []) {
-              DebugLog.d(
-                  'ProductInfo size: ${size.text}, Selected: ${size.selected}, Value: ${size.value}',
-                  category: DebugLog.PRODUCT);
-            }
+            debugPrint(
+                '[PD][DEBUG] - Sizes: ${newProductInfo.variants!["sizes"]?.length}');
           }
         }
 
-        // Only notify if we have valid product data (success = true indicates valid product)
+        // Only notify if we have valid product data
         if (newProductInfo.success) {
-          DebugLog.i('Successfully extracted product info',
-              category: DebugLog.PRODUCT);
           onProductInfoChanged(newProductInfo);
-        } else {
-          DebugLog.w('Product page detected but extraction failed',
-              category: DebugLog.PRODUCT);
         }
       }
 
@@ -206,17 +228,14 @@ class WebViewService {
         onUrlChanged(data['url']);
       }
     } catch (e) {
-      DebugLog.w('Error parsing product data JSON: $e',
-          category: DebugLog.PRODUCT);
+      debugPrint('[PD][DEBUG] Error parsing product data: $e');
 
+      // Fallback parsing for simple format (price|title)
       try {
-        // Fallback parsing for simple format (price|title)
         final data = message.message.split('|');
         if (data.length >= 2) {
           final price = double.tryParse(data[0]);
           if (price != null) {
-            DebugLog.i('Using fallback parsing for product data',
-                category: DebugLog.PRODUCT);
             final newProductInfo = ProductInfo(
               isProductPage: true,
               title: data[1],
@@ -228,8 +247,7 @@ class WebViewService {
           }
         }
       } catch (e) {
-        DebugLog.e('Error with fallback parsing: $e',
-            category: DebugLog.PRODUCT);
+        debugPrint('[PD][DEBUG] Error with fallback parsing: $e');
       }
     }
   }

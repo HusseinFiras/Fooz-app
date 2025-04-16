@@ -37,65 +37,65 @@ class ProductInfo {
   });
 
   factory ProductInfo.fromJson(Map<String, dynamic> json) {
-    // Debug logging for better variant tracing
-    debugPrint(
-        '[ProductInfo] Processing JSON: isProductPage=${json['isProductPage']}, title=${json['title']}');
+    // Debug log
+    debugPrint('[PD][DEBUG] ProductInfo.fromJson started');
 
     // Process variants
     Map<String, List<VariantOption>>? variantMap;
-    if (json['variants'] != null) {
-      debugPrint('[ProductInfo] Processing variants data');
+    if (json.containsKey('variants')) {
       variantMap = {};
+      final variants = json['variants'];
 
       // Process colors
-      if (json['variants']['colors'] != null) {
-        final colorsList = json['variants']['colors'] as List;
-        debugPrint('[ProductInfo] Processing ${colorsList.length} colors');
+      if (variants.containsKey('colors')) {
+        final List<dynamic> colorsList = variants['colors'];
+        debugPrint('[PD][DEBUG] Processing ${colorsList.length} colors');
 
-        variantMap['colors'] =
-            List<VariantOption>.from(colorsList.map((variant) {
-          // Log each color for debugging
-          debugPrint(
-              '[ProductInfo] Color: text=${variant['text']}, selected=${variant['selected']}, value=${variant['value']}');
-          return VariantOption.fromJson(variant);
-        }));
+        // Create a list for the processed colors
+        final List<VariantOption> processedColors = [];
+
+        // Process each color manually to ensure proper handling
+        for (int i = 0; i < colorsList.length; i++) {
+          final color = colorsList[i];
+          try {
+            processedColors.add(VariantOption.fromJson(color));
+          } catch (e) {
+            debugPrint('[PD][DEBUG] Error processing color at index $i: $e');
+          }
+        }
+
+        // Add to the variant map
+        variantMap['colors'] = processedColors;
+        debugPrint('[PD][DEBUG] Processed ${processedColors.length} colors');
       }
 
       // Process sizes
-      if (json['variants']['sizes'] != null) {
-        final sizesList = json['variants']['sizes'] as List;
-        debugPrint('[ProductInfo] Processing ${sizesList.length} sizes');
+      if (variants.containsKey('sizes')) {
+        final List<dynamic> sizesList = variants['sizes'];
+        debugPrint('[PD][DEBUG] Processing ${sizesList.length} sizes');
 
-        variantMap['sizes'] = List<VariantOption>.from(sizesList.map((variant) {
-          // Log each size for debugging
-          debugPrint(
-              '[ProductInfo] Size: text=${variant['text']}, selected=${variant['selected']}, value=${variant['value']}');
-          return VariantOption.fromJson(variant);
-        }));
+        // Create a list for the processed sizes
+        final List<VariantOption> processedSizes = [];
+
+        // Process each size manually to ensure proper handling
+        for (int i = 0; i < sizesList.length; i++) {
+          final size = sizesList[i];
+          try {
+            processedSizes.add(VariantOption.fromJson(size));
+          } catch (e) {
+            debugPrint('[PD][DEBUG] Error processing size at index $i: $e');
+          }
+        }
+
+        // Add to the variant map
+        variantMap['sizes'] = processedSizes;
+        debugPrint('[PD][DEBUG] Processed ${processedSizes.length} sizes');
       }
 
-      // Process other options
-      if (json['variants']['otherOptions'] != null) {
-        variantMap['otherOptions'] = List<VariantOption>.from(
-            (json['variants']['otherOptions'] as List)
-                .map((variant) => VariantOption.fromJson(variant)));
-      }
+      // Similar handling for otherOptions if needed
     }
 
-    // Log the final variant data
-    if (variantMap != null) {
-      debugPrint(
-          '[ProductInfo] Final variant map: ${variantMap.keys.join(", ")}');
-      if (variantMap.containsKey('colors')) {
-        debugPrint(
-            '[ProductInfo] Final colors count: ${variantMap['colors']?.length}');
-      }
-      if (variantMap.containsKey('sizes')) {
-        debugPrint(
-            '[ProductInfo] Final sizes count: ${variantMap['sizes']?.length}');
-      }
-    }
-
+    // Create the ProductInfo with properly processed variants
     return ProductInfo(
       isProductPage: json['isProductPage'] ?? false,
       title: json['title'],

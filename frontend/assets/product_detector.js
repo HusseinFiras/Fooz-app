@@ -2007,6 +2007,38 @@ const ZaraExtractor = {
       // Check if we have the minimum needed information for success
       result.success = !!(result.title && result.price);
 
+      if (result.success) {
+        // Handle sizes - make sure ALL detected sizes are included
+        if (result.variants && sizeOptions && sizeOptions.length > 0) {
+          // Replace sizes array with all detected sizes
+          result.variants.sizes = sizeOptions.map((size) => ({
+            text: size.text,
+            selected: size.selected,
+            value: JSON.stringify({
+              size: size.text,
+              inStock: size.inStock !== undefined ? size.inStock : true,
+            }),
+          }));
+
+          console.log(
+            `[PD][DEBUG] Fixed: Included all ${result.variants.sizes.length} sizes in result`
+          );
+        }
+
+        // Handle colors - make sure ALL detected colors are included
+        if (result.variants && colorOptions && colorOptions.length > 0) {
+          // Replace colors array with all detected colors
+          result.variants.colors = colorOptions.map((color) => ({
+            text: color.text,
+            selected: color.selected,
+            value: color.value || color.text,
+          }));
+
+          console.log(
+            `[PD][DEBUG] Fixed: Included all ${result.variants.colors.length} colors in result`
+          );
+        }
+      }
       return result;
     } catch (e) {
       Logger.error("Error extracting from Zara site", e);

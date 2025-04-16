@@ -35,26 +35,21 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     super.initState();
     _checkProductStatus();
     _debugLogProductInfo();
+
+    // Add this line to log variant data at initialization time
+    _logVariantData();
   }
 
   void _debugLogProductInfo() {
-    debugPrint('[PRODUCT_DETAILS] Product title: ${widget.productInfo.title}');
-    debugPrint('[PRODUCT_DETAILS] Product brand: ${widget.productInfo.brand}');
-
-    if (widget.productInfo.imageUrl != null) {
-      debugPrint(
-          '[PRODUCT_DETAILS] Product image URL: ${widget.productInfo.imageUrl}');
-    } else {
-      debugPrint('[PRODUCT_DETAILS] No product image URL available');
-    }
+    debugPrint('[PD][DEBUG] Product title: ${widget.productInfo.title}');
+    debugPrint('[PD][DEBUG] Product brand: ${widget.productInfo.brand}');
 
     if (widget.productInfo.variants != null) {
       final variants = widget.productInfo.variants!;
+      debugPrint('[PD][DEBUG] Variants keys: ${variants.keys.join(", ")}');
 
-      // Debug log for variants
-      debugPrint('[PD][DEBUG] Variants data: ${variants.keys.join(", ")}');
-
-      if (variants.containsKey('colors') && variants['colors']!.isNotEmpty) {
+      // Log color variants
+      if (variants.containsKey('colors') && variants['colors'] != null) {
         debugPrint(
             '[PD][DEBUG] Color variants count: ${variants['colors']!.length}');
         for (final color in variants['colors']!) {
@@ -65,22 +60,13 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         debugPrint('[PD][DEBUG] No color variants found');
       }
 
-      if (variants.containsKey('sizes') && variants['sizes']!.isNotEmpty) {
+      // Log size variants
+      if (variants.containsKey('sizes') && variants['sizes'] != null) {
         debugPrint(
             '[PD][DEBUG] Size variants count: ${variants['sizes']!.length}');
         for (final size in variants['sizes']!) {
           debugPrint(
               '[PD][DEBUG] Size: ${size.text}, Selected: ${size.selected}, Value: ${size.value}');
-
-          // Try to parse the value if it's JSON
-          if (size.value != null && size.value!.startsWith('{')) {
-            try {
-              final valueMap = jsonDecode(size.value!);
-              debugPrint('[PD][DEBUG] Size value parsed: $valueMap');
-            } catch (e) {
-              debugPrint('[PD][DEBUG] Failed to parse size value: $e');
-            }
-          }
         }
       } else {
         debugPrint('[PD][DEBUG] No size variants found');
@@ -225,7 +211,12 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
   // Enhanced color variant section with improved RGB color handling
   Widget _buildColorVariants(List<VariantOption> colorOptions) {
     debugPrint(
-        '[PD][DEBUG] Building color variants: ${colorOptions.length} options');
+        '[PD][DEBUG] _buildColorVariants called with ${colorOptions.length} options');
+    // Dump the raw color options for inspection
+    for (var i = 0; i < colorOptions.length; i++) {
+      debugPrint(
+          '[PD][DEBUG] Raw color option $i: ${colorOptions[i].text}, ${colorOptions[i].selected}, ${colorOptions[i].value}');
+    }
 
     // Filter out nonsensical or placeholder options
     final filteredOptions = colorOptions.where((option) {
@@ -449,8 +440,12 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
   // Enhanced size variant display for Zara
   Widget _buildSizeVariants(List<VariantOption> sizeOptions) {
     debugPrint(
-        '[PD][DEBUG] Building size variants: ${sizeOptions.length} options');
-
+        '[PD][DEBUG] _buildSizeVariants called with ${sizeOptions.length} options');
+    // Dump the raw size options for inspection
+    for (var i = 0; i < sizeOptions.length; i++) {
+      debugPrint(
+          '[PD][DEBUG] Raw size option $i: ${sizeOptions[i].text}, ${sizeOptions[i].selected}, ${sizeOptions[i].value}');
+    }
     // Filter out nonsensical or placeholder options
     final filteredOptions = sizeOptions.where((option) {
       final String lowerText = option.text.toLowerCase().trim();
@@ -631,23 +626,48 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     final isZara = widget.productInfo.brand?.toLowerCase() == 'zara' ||
         widget.productInfo.url.toLowerCase().contains('zara.com');
 
-    // Log initial variant state
-    debugPrint('[PD][DEBUG] Building product details');
+    // Log initial variant state in more detail
+    debugPrint(
+        '[PD][DEBUG] Building product details for URL: ${widget.productInfo.url}');
+    debugPrint('[PD][DEBUG] Product title: ${widget.productInfo.title}');
+    debugPrint(
+        '[PD][DEBUG] Variants null check: ${widget.productInfo.variants != null}');
+
     if (widget.productInfo.variants != null) {
-      debugPrint(
-          '[PD][DEBUG] Has variants: ${widget.productInfo.variants!.keys.join(", ")}');
-      if (widget.productInfo.variants!.containsKey('colors')) {
-        debugPrint(
-            '[PD][DEBUG] Colors count: ${widget.productInfo.variants!["colors"]?.length ?? 0}');
+      final variants = widget.productInfo.variants!;
+      debugPrint('[PD][DEBUG] Variants keys: ${variants.keys.join(", ")}');
+
+      // Debug colors
+      if (variants.containsKey('colors')) {
+        final colors = variants['colors'];
+        debugPrint('[PD][DEBUG] Colors count: ${colors?.length ?? 0}');
+        if (colors != null && colors.isNotEmpty) {
+          for (var i = 0; i < colors.length; i++) {
+            debugPrint(
+                '[PD][DEBUG] Color $i: ${colors[i].text}, selected: ${colors[i].selected}');
+          }
+        }
+      } else {
+        debugPrint('[PD][DEBUG] No colors in variants map');
       }
-      if (widget.productInfo.variants!.containsKey('sizes')) {
-        debugPrint(
-            '[PD][DEBUG] Sizes count: ${widget.productInfo.variants!["sizes"]?.length ?? 0}');
+
+      // Debug sizes
+      if (variants.containsKey('sizes')) {
+        final sizes = variants['sizes'];
+        debugPrint('[PD][DEBUG] Sizes count: ${sizes?.length ?? 0}');
+        if (sizes != null && sizes.isNotEmpty) {
+          for (var i = 0; i < sizes.length; i++) {
+            debugPrint(
+                '[PD][DEBUG] Size $i: ${sizes[i].text}, selected: ${sizes[i].selected}');
+          }
+        }
+      } else {
+        debugPrint('[PD][DEBUG] No sizes in variants map');
       }
     } else {
-      debugPrint('[PD][DEBUG] No variants available');
+      debugPrint('[PD][DEBUG] Product has no variants data');
     }
-
+    _logVariantData();
     return Container(
       padding: const EdgeInsets.all(16),
       height: MediaQuery.of(context).size.height * 0.85,
@@ -1000,5 +1020,33 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     final brightness =
         (299 * color.red + 587 * color.green + 114 * color.blue) / 1000;
     return brightness > 128;
+  }
+
+  void _logVariantData() {
+    debugPrint('[PD][DEBUG] Checking variants in product details');
+
+    if (widget.productInfo.variants != null) {
+      final variants = widget.productInfo.variants!;
+
+      if (variants.containsKey('colors')) {
+        final colors = variants['colors'];
+        debugPrint('[PD][DEBUG] Colors in product details: ${colors?.length}');
+      } else {
+        debugPrint('[PD][DEBUG] No colors key in variants');
+      }
+
+      if (variants.containsKey('sizes')) {
+        final sizes = variants['sizes'];
+        debugPrint('[PD][DEBUG] Sizes in product details: ${sizes?.length}');
+        if (sizes != null && sizes.isNotEmpty) {
+          debugPrint(
+              '[PD][DEBUG] Available sizes: ${sizes.map((s) => s.text).join(", ")}');
+        }
+      } else {
+        debugPrint('[PD][DEBUG] No sizes key in variants');
+      }
+    } else {
+      debugPrint('[PD][DEBUG] No variants in productInfo');
+    }
   }
 }
