@@ -1,5 +1,6 @@
 // lib/services/webview_service.dart
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -118,106 +119,267 @@ class WebViewService {
 
   void _handleJavaScriptMessage(JavaScriptMessage message) {
     try {
-      final data = jsonDecode(message.message);
+      // Debug the raw message first
+      debugPrint('[PD][DEBUG] Raw message length: ${message.message.length}');
 
+      // For large messages, just show beginning and end
+      if (message.message.length > 1000) {
+        debugPrint(
+            '[PD][DEBUG] Raw message start: ${message.message.substring(0, 100)}...');
+        debugPrint(
+            '[PD][DEBUG] Raw message end: ${message.message.substring(message.message.length - 100)}');
+      } else {
+        debugPrint('[PD][DEBUG] Raw message: ${message.message}');
+      }
+
+      final data = jsonDecode(message.message);
       debugPrint(
           '[PD][DEBUG] Received message from JS with keys: ${data.keys.join(", ")}');
 
-// Check for variants and log detailed information
+      // Debug variants structure immediately after JSON decode
       if (data.containsKey('variants')) {
         final variants = data['variants'];
         debugPrint('[PD][DEBUG] Variants keys: ${variants.keys.join(", ")}');
 
-        if (variants.containsKey('sizes')) {
-          final sizes = variants['sizes'];
-          debugPrint(
-              '[PD][DEBUG] Raw sizes from JS: ${sizes.runtimeType}, count: ${sizes.length}');
-
-          // Log a sample of sizes
-          if (sizes is List && sizes.length > 0) {
-            if (sizes.length >= 3) {
-              debugPrint(
-                  '[PD][DEBUG] First few sizes: ${sizes[0]["text"]}, ${sizes[1]["text"]}, ${sizes[2]["text"]}');
-            }
-          }
-        }
-
+        // Debug each variant type in detail
         if (variants.containsKey('colors')) {
           final colors = variants['colors'];
           debugPrint(
-              '[PD][DEBUG] Raw colors from JS: ${colors.runtimeType}, count: ${colors.length}');
+              '[PD][DEBUG] Raw colors: ${colors.runtimeType}, count: ${colors.length}');
+
+          // Dump the entire colors array for inspection
+          debugPrint('[PD][DEBUG] Raw colors JSON: ${jsonEncode(colors)}');
+
+          // Log first two colors to check structure
+          if (colors is List && colors.length > 0) {
+            for (int i = 0; i < min(colors.length, 2); i++) {
+              debugPrint('[PD][DEBUG] Color $i: ${jsonEncode(colors[i])}');
+            }
+          }
+        }
+
+        if (variants.containsKey('sizes')) {
+          final sizes = variants['sizes'];
+          debugPrint(
+              '[PD][DEBUG] Raw sizes: ${sizes.runtimeType}, count: ${sizes.length}');
+
+          // Dump the entire sizes array for inspection
+          debugPrint('[PD][DEBUG] Raw sizes JSON: ${jsonEncode(sizes)}');
+
+          // Log first few sizes to check structure
+          if (sizes is List && sizes.length > 0) {
+            for (int i = 0; i < min(sizes.length, 3); i++) {
+              debugPrint('[PD][DEBUG] Size $i: ${jsonEncode(sizes[i])}');
+            }
+          }
         }
       }
 
-      // Check if we have a valid product message
+      // Process product information for Zara products
       if (data['isProductPage'] == true) {
-        // ** CRITICAL CHANGE: Make a proper deep copy of the data structure **
-        // Instead of referencing the original data, we create complete copies
-        final Map<String, dynamic> productData =
-            Map<String, dynamic>.from(data);
+        bool isZaraProduct = false;
+        if (data.containsKey('url')) {
+          String url = data['url'] as String;
+          isZaraProduct = url.toLowerCase().contains('zara.com');
+        } else if (data.containsKey('brand')) {
+          isZaraProduct = (data['brand'] as String?)?.toLowerCase() == 'zara';
+        }
 
-        // Handle variants specifically - this is where data is being lost
-        if (productData.containsKey('variants')) {
-          // Deep copy the variants map first
-          final variantsMap =
-              Map<String, dynamic>.from(productData['variants']);
+        if (isZaraProduct) {
+          debugPrint('[PD][DEBUG] Processing Zara product variants');
 
-          // Deep copy individual arrays
-          if (variantsMap.containsKey('colors')) {
-            final List<dynamic> colorsList =
-                List<dynamic>.from(variantsMap['colors']);
-            final List<Map<String, dynamic>> colorsCopy = [];
+          // Create a properly typed copy of the original data
+          final Map<String, dynamic> productData = {};
 
-            // Manually copy each color item to ensure proper structure
-            for (final color in colorsList) {
-              colorsCopy.add(Map<String, dynamic>.from(color));
+          // Copy all the top-level fields
+          data.forEach((key, value) {
+            if (key is String) {
+              productData[key] = value;
+            }
+          });
+
+          // Special debugging for variants
+          if (data.containsKey('variants') && data['variants'] is Map) {
+            final originalVariants = data['variants'] as Map;
+            final Map<String, dynamic> variantsMap = {};
+
+            // Debug the original structure first
+            if (originalVariants.containsKey('colors')) {
+              final colors = originalVariants['colors'];
+              debugPrint(
+                  '[PD][DEBUG] Found ${colors.length} colors in Zara product');
             }
 
-            // Replace with our deep-copied list
-            variantsMap['colors'] = colorsCopy;
-            debugPrint('[PD][DEBUG] Deep-copied colors: ${colorsCopy.length}');
-          }
-
-          // Same for sizes
-          if (variantsMap.containsKey('sizes')) {
-            final List<dynamic> sizesList =
-                List<dynamic>.from(variantsMap['sizes']);
-            final List<Map<String, dynamic>> sizesCopy = [];
-
-            // Manually copy each size item
-            for (final size in sizesList) {
-              sizesCopy.add(Map<String, dynamic>.from(size));
+            if (originalVariants.containsKey('sizes')) {
+              final sizes = originalVariants['sizes'];
+              debugPrint(
+                  '[PD][DEBUG] Found ${sizes.length} sizes in Zara product');
             }
 
-            // Replace with our deep-copied list
-            variantsMap['sizes'] = sizesCopy;
-            debugPrint('[PD][DEBUG] Deep-copied sizes: ${sizesCopy.length}');
+            // Copy variant data with proper typing
+            originalVariants.forEach((key, value) {
+              if (key is String) {
+                debugPrint('[PD][DEBUG] Processing variant type: $key');
+                // For arrays of variants (colors, sizes, etc.)
+                if (value is List) {
+                  debugPrint(
+                      '[PD][DEBUG] Found ${value.length} items in $key list');
+                  List<Map<String, dynamic>> convertedList = [];
+
+                  // Process each item in the list, ensuring it's a properly typed Map
+                  for (var i = 0; i < value.length; i++) {
+                    var item = value[i];
+                    debugPrint(
+                        '[PD][DEBUG] Processing item $i in $key: ${item.runtimeType}');
+
+                    if (item is Map) {
+                      Map<String, dynamic> convertedItem = {};
+
+                      // Copy with proper typing
+                      item.forEach((itemKey, itemValue) {
+                        if (itemKey is String) {
+                          convertedItem[itemKey] = itemValue;
+                        }
+                      });
+
+                      if (convertedItem.containsKey('text')) {
+                        convertedList.add(convertedItem);
+                        debugPrint(
+                            '[PD][DEBUG] Added item: ${convertedItem['text']}');
+                      } else {
+                        debugPrint(
+                            '[PD][DEBUG] Skipped item - missing text field');
+                      }
+                    } else {
+                      debugPrint(
+                          '[PD][DEBUG] Item is not a Map: ${item.runtimeType}');
+                    }
+                  }
+
+                  variantsMap[key] = convertedList;
+                  debugPrint(
+                      '[PD][DEBUG] Converted ${convertedList.length} items in ${key}');
+
+                  // Check the entire list to make sure
+                  for (var i = 0; i < convertedList.length; i++) {
+                    debugPrint(
+                        '[PD][DEBUG] Converted $key $i: ${convertedList[i]['text']}');
+                  }
+                } else {
+                  variantsMap[key] = value;
+                }
+              }
+            });
+
+            // Store the properly typed variants map
+            productData['variants'] = variantsMap;
+
+            // Validate final variants map
+            if (variantsMap.containsKey('colors')) {
+              debugPrint(
+                  '[PD][DEBUG] Final colors count: ${variantsMap['colors'].length}');
+            }
+
+            if (variantsMap.containsKey('sizes')) {
+              debugPrint(
+                  '[PD][DEBUG] Final sizes count: ${variantsMap['sizes'].length}');
+            }
           }
 
-          // Replace variants in productData with our deep copied version
-          productData['variants'] = variantsMap;
-        }
+          // Create product info from our properly copied data
+          final newProductInfo = ProductInfo.fromJson(productData);
 
-        // Create product info from our properly copied data
-        final newProductInfo = ProductInfo.fromJson(productData);
-
-        // Debug log the result
-        if (newProductInfo.variants != null) {
-          debugPrint('[PD][DEBUG] Final ProductInfo variants:');
-          if (newProductInfo.variants!.containsKey('colors')) {
-            debugPrint(
-                '[PD][DEBUG] - Colors: ${newProductInfo.variants!["colors"]?.length}');
+          // Debug log the result
+          if (newProductInfo.variants != null) {
+            debugPrint('[PD][DEBUG] Final ProductInfo variants:');
+            if (newProductInfo.variants!.containsKey('colors')) {
+              debugPrint(
+                  '[PD][DEBUG] - Colors: ${newProductInfo.variants!["colors"]?.length}');
+              // Log each color
+              newProductInfo.variants!["colors"]?.forEach((color) {
+                debugPrint('[PD][DEBUG] - Color: ${color.text}');
+              });
+            }
+            if (newProductInfo.variants!.containsKey('sizes')) {
+              debugPrint(
+                  '[PD][DEBUG] - Sizes: ${newProductInfo.variants!["sizes"]?.length}');
+              // Log each size
+              newProductInfo.variants!["sizes"]?.forEach((size) {
+                debugPrint('[PD][DEBUG] - Size: ${size.text}');
+              });
+            }
           }
-          if (newProductInfo.variants!.containsKey('sizes')) {
-            debugPrint(
-                '[PD][DEBUG] - Sizes: ${newProductInfo.variants!["sizes"]?.length}');
+
+          // Only notify if we have valid product data
+          if (newProductInfo.success) {
+            onProductInfoChanged(newProductInfo);
+          }
+        } else {
+          // Standard handling for non-Zara products
+          // Create a typed copy of the data
+          final Map<String, dynamic> productData = {};
+
+          // Copy all the top-level fields
+          data.forEach((key, value) {
+            if (key is String) {
+              productData[key] = value;
+            }
+          });
+
+          // Handle variants
+          if (data.containsKey('variants') && data['variants'] is Map) {
+            final originalVariants = data['variants'] as Map;
+            final Map<String, dynamic> variantsMap = {};
+
+            // Copy variant data with proper typing
+            originalVariants.forEach((key, value) {
+              if (key is String) {
+                // For arrays of variants
+                if (value is List) {
+                  List<Map<String, dynamic>> convertedList = [];
+
+                  // Process each item in the list
+                  for (var item in value) {
+                    if (item is Map) {
+                      Map<String, dynamic> convertedItem = {};
+
+                      // Copy with proper typing
+                      item.forEach((itemKey, itemValue) {
+                        if (itemKey is String) {
+                          convertedItem[itemKey] = itemValue;
+                        }
+                      });
+
+                      if (convertedItem.containsKey('text')) {
+                        convertedList.add(convertedItem);
+                      }
+                    }
+                  }
+
+                  variantsMap[key] = convertedList;
+                  debugPrint(
+                      '[PD][DEBUG] Converted ${convertedList.length} items in ${key}');
+                } else {
+                  variantsMap[key] = value;
+                }
+              }
+            });
+
+            // Store the properly typed variants map
+            productData['variants'] = variantsMap;
+          }
+
+          // Create product info from our properly copied data
+          final newProductInfo = ProductInfo.fromJson(productData);
+
+          // Only notify if we have valid product data
+          if (newProductInfo.success) {
+            onProductInfoChanged(newProductInfo);
           }
         }
-
-        // Only notify if we have valid product data
-        if (newProductInfo.success) {
-          onProductInfoChanged(newProductInfo);
-        }
+      } else {
+        // For non-product pages
+        debugPrint('[PD][DEBUG] Not a product page');
       }
 
       // Handle URL change notification if present
@@ -227,8 +389,9 @@ class WebViewService {
           data['url'] != null) {
         onUrlChanged(data['url']);
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('[PD][DEBUG] Error parsing product data: $e');
+      debugPrint('[PD][DEBUG] Stack trace: $stackTrace');
 
       // Fallback parsing for simple format (price|title)
       try {

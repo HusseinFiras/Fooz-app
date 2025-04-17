@@ -52,9 +52,6 @@ class VariantOption {
       additionalData: additionalData,
     );
   }
-
-  // Helper methods to make accessing common properties easier
-
   // Is this size/color in stock?
   bool get isInStock {
     // Check additionalData first

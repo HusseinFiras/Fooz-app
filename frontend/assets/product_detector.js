@@ -1999,46 +1999,25 @@ const ZaraExtractor = {
       this.extractZaraProductImage(result);
 
       // Extract Zara-specific color variants - completely customized for their HTML structure
-      this.extractZaraColors(result);
+      const colorOptions = this.extractZaraColors();
 
       // Extract Zara-specific size variants - handles their unique approach to size display
-      this.extractZaraSizes(result);
+      const sizeOptions = this.extractZaraSizes();
+
+      // CRITICAL FIX: Properly assign ALL colors and sizes to the result object
+      if (colorOptions && colorOptions.length > 0) {
+        result.variants.colors = colorOptions;
+        Logger.debug(`Added ${colorOptions.length} colors to result`);
+      }
+
+      if (sizeOptions && sizeOptions.length > 0) {
+        result.variants.sizes = sizeOptions;
+        Logger.debug(`Added ${sizeOptions.length} sizes to result`);
+      }
 
       // Check if we have the minimum needed information for success
       result.success = !!(result.title && result.price);
 
-      if (result.success) {
-        // Handle sizes - make sure ALL detected sizes are included
-        if (result.variants && sizeOptions && sizeOptions.length > 0) {
-          // Replace sizes array with all detected sizes
-          result.variants.sizes = sizeOptions.map((size) => ({
-            text: size.text,
-            selected: size.selected,
-            value: JSON.stringify({
-              size: size.text,
-              inStock: size.inStock !== undefined ? size.inStock : true,
-            }),
-          }));
-
-          console.log(
-            `[PD][DEBUG] Fixed: Included all ${result.variants.sizes.length} sizes in result`
-          );
-        }
-
-        // Handle colors - make sure ALL detected colors are included
-        if (result.variants && colorOptions && colorOptions.length > 0) {
-          // Replace colors array with all detected colors
-          result.variants.colors = colorOptions.map((color) => ({
-            text: color.text,
-            selected: color.selected,
-            value: color.value || color.text,
-          }));
-
-          console.log(
-            `[PD][DEBUG] Fixed: Included all ${result.variants.colors.length} colors in result`
-          );
-        }
-      }
       return result;
     } catch (e) {
       Logger.error("Error extracting from Zara site", e);
@@ -2140,9 +2119,10 @@ const ZaraExtractor = {
   },
 
   // Helper method to extract Zara-specific colors - based on the provided HTML structure
-  extractZaraColors: function (result) {
+  extractZaraColors: function () {
     try {
       Logger.info("Extracting Zara-specific colors");
+      const colorResults = [];
 
       // First try the color selector from the provided HTML
       const colorSelector = ".product-detail-color-selector__colors";
@@ -2200,7 +2180,7 @@ const ZaraExtractor = {
               colorName = this.generateColorNameFromRgb(colorValue);
             }
 
-            result.variants.colors.push({
+            colorResults.push({
               text: colorName || "Color Option",
               selected: isSelected,
               value: colorValue || colorName,
@@ -2213,8 +2193,8 @@ const ZaraExtractor = {
         }
 
         // Successfully extracted colors
-        if (result.variants.colors.length > 0) {
-          return;
+        if (colorResults.length > 0) {
+          return colorResults;
         }
       }
 
@@ -2283,7 +2263,7 @@ const ZaraExtractor = {
                 colorName = this.generateColorNameFromRgb(colorValue);
               }
 
-              result.variants.colors.push({
+              colorResults.push({
                 text: colorName || "Color Option",
                 selected: isSelected,
                 value: colorValue || colorName,
@@ -2296,13 +2276,16 @@ const ZaraExtractor = {
           }
 
           // If we found colors, stop searching
-          if (result.variants.colors.length > 0) {
+          if (colorResults.length > 0) {
             break;
           }
         }
       }
+
+      return colorResults;
     } catch (e) {
       Logger.warn("Error extracting Zara colors", e);
+      return [];
     }
   },
 
@@ -2343,9 +2326,10 @@ const ZaraExtractor = {
   },
 
   // Helper method to extract Zara-specific sizes - based on the provided HTML structure
-  extractZaraSizes: function (result) {
+  extractZaraSizes: function () {
     try {
       Logger.info("Extracting Zara-specific sizes");
+      const sizeResults = [];
 
       // First try the size selector from the provided HTML structure
       const sizeSelector = ".size-selector-sizes";
@@ -2360,8 +2344,8 @@ const ZaraExtractor = {
 
         for (const sizeItem of sizeItems) {
           // Check if this size is enabled (in stock)
-          const isEnabled = sizeItem.classList.contains(
-            "size-selector-sizes-size--enabled"
+          const isEnabled = !sizeItem.classList.contains(
+            "size-selector-sizes-size--disabled"
           );
 
           // Get size label
@@ -2388,7 +2372,7 @@ const ZaraExtractor = {
           const valueJson = JSON.stringify(valueObj);
 
           // Add to size variants
-          result.variants.sizes.push({
+          sizeResults.push({
             text: sizeText,
             selected: isSelected,
             value: valueJson, // Store as JSON string so Dart can parse it
@@ -2400,8 +2384,8 @@ const ZaraExtractor = {
         }
 
         // Successfully extracted sizes
-        if (result.variants.sizes.length > 0) {
-          return;
+        if (sizeResults.length > 0) {
+          return sizeResults;
         }
       }
 
@@ -2456,7 +2440,7 @@ const ZaraExtractor = {
             const valueJson = JSON.stringify(valueObj);
 
             // Add to size variants
-            result.variants.sizes.push({
+            sizeResults.push({
               text: sizeText,
               selected: isSelected,
               value: valueJson,
@@ -2468,14 +2452,14 @@ const ZaraExtractor = {
           }
 
           // If we found sizes, stop searching
-          if (result.variants.sizes.length > 0) {
+          if (sizeResults.length > 0) {
             break;
           }
         }
       }
 
       // If we still didn't find sizes, try one more approach - look for a hidden size selector
-      if (result.variants.sizes.length === 0) {
+      if (sizeResults.length === 0) {
         // Try to find the size button which might open the size selector
         const sizeButton = document.querySelector(
           'button[data-qa-action="open-size-selector"]'
@@ -2516,7 +2500,7 @@ const ZaraExtractor = {
               };
               const valueJson = JSON.stringify(valueObj);
 
-              result.variants.sizes.push({
+              sizeResults.push({
                 text: sizeText,
                 selected: false, // Can't determine for hidden sizes
                 value: valueJson,
@@ -2527,8 +2511,11 @@ const ZaraExtractor = {
           }
         }
       }
+
+      return sizeResults;
     } catch (e) {
       Logger.warn("Error extracting Zara sizes", e);
+      return [];
     }
   },
 };
