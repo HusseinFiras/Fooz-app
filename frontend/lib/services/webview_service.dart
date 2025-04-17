@@ -1,10 +1,10 @@
-// lib/services/webview_service.dart
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../models/product_info.dart';
+import '../models/variant_option.dart'; // Added import
 import '../utils/debug_utils.dart';
 
 class WebViewService {
@@ -12,6 +12,9 @@ class WebViewService {
   final Function(bool) onLoadingStateChanged;
   final Function(ProductInfo) onProductInfoChanged;
   final Function(String) onUrlChanged;
+
+  // Add a property to store the last detected product info
+  ProductInfo? _lastProductInfo;
 
   WebViewService({
     required this.onLoadingStateChanged,
@@ -48,6 +51,8 @@ class WebViewService {
               onUrlChanged(change.url!);
               // When URL changes, we should reset the loading state
               onLoadingStateChanged(true);
+              // Reset the last product info
+              _lastProductInfo = null;
             }
           },
         ),
@@ -136,6 +141,27 @@ class WebViewService {
       debugPrint(
           '[PD][DEBUG] Received message from JS with keys: ${data.keys.join(", ")}');
 
+      // Check if this is an enhanced variants message from our custom Zara script
+      if (data.containsKey('type') && data['type'] == 'enhanced_variants') {
+        debugPrint('[PD][DEBUG] Received enhanced variants data');
+
+        // Process enhanced variants only if we have a last product info
+        if (_lastProductInfo != null && data.containsKey('variants')) {
+          _processEnhancedVariants(data['variants']);
+        }
+        return;
+      }
+
+      // Check if this is a Zara product by URL or brand
+      bool isZaraProduct = false;
+      String? url = data['url'] as String?;
+      String? brand = data['brand'] as String?;
+      if (url != null && url.toLowerCase().contains('zara.com')) {
+        isZaraProduct = true;
+      } else if (brand != null && brand.toLowerCase() == 'zara') {
+        isZaraProduct = true;
+      }
+
       // Debug variants structure immediately after JSON decode
       if (data.containsKey('variants')) {
         final variants = data['variants'];
@@ -177,205 +203,280 @@ class WebViewService {
 
       // Process product information for Zara products
       if (data['isProductPage'] == true) {
-        bool isZaraProduct = false;
-        if (data.containsKey('url')) {
-          String url = data['url'] as String;
-          isZaraProduct = url.toLowerCase().contains('zara.com');
-        } else if (data.containsKey('brand')) {
-          isZaraProduct = (data['brand'] as String?)?.toLowerCase() == 'zara';
-        }
+        debugPrint('[PD][DEBUG] Processing Zara product variants');
 
-        if (isZaraProduct) {
-          debugPrint('[PD][DEBUG] Processing Zara product variants');
+        // Create a properly typed copy of the original data
+        final Map<String, dynamic> productData = {};
 
-          // Create a properly typed copy of the original data
-          final Map<String, dynamic> productData = {};
+        // Copy all the top-level fields
+        data.forEach((key, value) {
+          if (key is String) {
+            productData[key] = value;
+          }
+        });
 
-          // Copy all the top-level fields
-          data.forEach((key, value) {
+        // Special debugging for variants
+        if (data.containsKey('variants') && data['variants'] is Map) {
+          final originalVariants = data['variants'] as Map;
+          final Map<String, dynamic> variantsMap = {};
+
+          // Debug the original structure first
+          if (originalVariants.containsKey('colors')) {
+            final colors = originalVariants['colors'];
+            debugPrint(
+                '[PD][DEBUG] Found ${colors.length} colors in Zara product');
+          }
+
+          if (originalVariants.containsKey('sizes')) {
+            final sizes = originalVariants['sizes'];
+            debugPrint(
+                '[PD][DEBUG] Found ${sizes.length} sizes in Zara product');
+          }
+
+          // Copy variant data with proper typing
+          originalVariants.forEach((key, value) {
             if (key is String) {
-              productData[key] = value;
-            }
-          });
+              debugPrint('[PD][DEBUG] Processing variant type: $key');
+              // For arrays of variants (colors, sizes, etc.)
+              if (value is List) {
+                debugPrint(
+                    '[PD][DEBUG] Found ${value.length} items in $key list');
+                List<Map<String, dynamic>> convertedList = [];
 
-          // Special debugging for variants
-          if (data.containsKey('variants') && data['variants'] is Map) {
-            final originalVariants = data['variants'] as Map;
-            final Map<String, dynamic> variantsMap = {};
-
-            // Debug the original structure first
-            if (originalVariants.containsKey('colors')) {
-              final colors = originalVariants['colors'];
-              debugPrint(
-                  '[PD][DEBUG] Found ${colors.length} colors in Zara product');
-            }
-
-            if (originalVariants.containsKey('sizes')) {
-              final sizes = originalVariants['sizes'];
-              debugPrint(
-                  '[PD][DEBUG] Found ${sizes.length} sizes in Zara product');
-            }
-
-            // Copy variant data with proper typing
-            originalVariants.forEach((key, value) {
-              if (key is String) {
-                debugPrint('[PD][DEBUG] Processing variant type: $key');
-                // For arrays of variants (colors, sizes, etc.)
-                if (value is List) {
+                // Process each item in the list, ensuring it's a properly typed Map
+                for (var i = 0; i < value.length; i++) {
+                  var item = value[i];
                   debugPrint(
-                      '[PD][DEBUG] Found ${value.length} items in $key list');
-                  List<Map<String, dynamic>> convertedList = [];
+                      '[PD][DEBUG] Processing item $i in $key: ${item.runtimeType}');
 
-                  // Process each item in the list, ensuring it's a properly typed Map
-                  for (var i = 0; i < value.length; i++) {
-                    var item = value[i];
-                    debugPrint(
-                        '[PD][DEBUG] Processing item $i in $key: ${item.runtimeType}');
+                  if (item is Map) {
+                    Map<String, dynamic> convertedItem = {};
 
-                    if (item is Map) {
-                      Map<String, dynamic> convertedItem = {};
-
-                      // Copy with proper typing
-                      item.forEach((itemKey, itemValue) {
-                        if (itemKey is String) {
-                          convertedItem[itemKey] = itemValue;
-                        }
-                      });
-
-                      if (convertedItem.containsKey('text')) {
-                        convertedList.add(convertedItem);
-                        debugPrint(
-                            '[PD][DEBUG] Added item: ${convertedItem['text']}');
-                      } else {
-                        debugPrint(
-                            '[PD][DEBUG] Skipped item - missing text field');
+                    // Copy with proper typing
+                    item.forEach((itemKey, itemValue) {
+                      if (itemKey is String) {
+                        convertedItem[itemKey] = itemValue;
                       }
+                    });
+
+                    if (convertedItem.containsKey('text')) {
+                      convertedList.add(convertedItem);
+                      debugPrint(
+                          '[PD][DEBUG] Added item: ${convertedItem['text']}');
                     } else {
                       debugPrint(
-                          '[PD][DEBUG] Item is not a Map: ${item.runtimeType}');
+                          '[PD][DEBUG] Skipped item - missing text field');
                     }
-                  }
-
-                  variantsMap[key] = convertedList;
-                  debugPrint(
-                      '[PD][DEBUG] Converted ${convertedList.length} items in ${key}');
-
-                  // Check the entire list to make sure
-                  for (var i = 0; i < convertedList.length; i++) {
+                  } else {
                     debugPrint(
-                        '[PD][DEBUG] Converted $key $i: ${convertedList[i]['text']}');
+                        '[PD][DEBUG] Item is not a Map: ${item.runtimeType}');
                   }
-                } else {
-                  variantsMap[key] = value;
                 }
+
+                variantsMap[key] = convertedList;
+                debugPrint(
+                    '[PD][DEBUG] Converted ${convertedList.length} items in ${key}');
+
+                // Check the entire list to make sure
+                for (var i = 0; i < convertedList.length; i++) {
+                  debugPrint(
+                      '[PD][DEBUG] Converted $key $i: ${convertedList[i]['text']}');
+                }
+              } else {
+                variantsMap[key] = value;
               }
-            });
-
-            // Store the properly typed variants map
-            productData['variants'] = variantsMap;
-
-            // Validate final variants map
-            if (variantsMap.containsKey('colors')) {
-              debugPrint(
-                  '[PD][DEBUG] Final colors count: ${variantsMap['colors'].length}');
-            }
-
-            if (variantsMap.containsKey('sizes')) {
-              debugPrint(
-                  '[PD][DEBUG] Final sizes count: ${variantsMap['sizes'].length}');
-            }
-          }
-
-          // Create product info from our properly copied data
-          final newProductInfo = ProductInfo.fromJson(productData);
-
-          // Debug log the result
-          if (newProductInfo.variants != null) {
-            debugPrint('[PD][DEBUG] Final ProductInfo variants:');
-            if (newProductInfo.variants!.containsKey('colors')) {
-              debugPrint(
-                  '[PD][DEBUG] - Colors: ${newProductInfo.variants!["colors"]?.length}');
-              // Log each color
-              newProductInfo.variants!["colors"]?.forEach((color) {
-                debugPrint('[PD][DEBUG] - Color: ${color.text}');
-              });
-            }
-            if (newProductInfo.variants!.containsKey('sizes')) {
-              debugPrint(
-                  '[PD][DEBUG] - Sizes: ${newProductInfo.variants!["sizes"]?.length}');
-              // Log each size
-              newProductInfo.variants!["sizes"]?.forEach((size) {
-                debugPrint('[PD][DEBUG] - Size: ${size.text}');
-              });
-            }
-          }
-
-          // Only notify if we have valid product data
-          if (newProductInfo.success) {
-            onProductInfoChanged(newProductInfo);
-          }
-        } else {
-          // Standard handling for non-Zara products
-          // Create a typed copy of the data
-          final Map<String, dynamic> productData = {};
-
-          // Copy all the top-level fields
-          data.forEach((key, value) {
-            if (key is String) {
-              productData[key] = value;
             }
           });
 
-          // Handle variants
-          if (data.containsKey('variants') && data['variants'] is Map) {
-            final originalVariants = data['variants'] as Map;
-            final Map<String, dynamic> variantsMap = {};
+          // Store the properly typed variants map
+          productData['variants'] = variantsMap;
 
-            // Copy variant data with proper typing
-            originalVariants.forEach((key, value) {
-              if (key is String) {
-                // For arrays of variants
-                if (value is List) {
-                  List<Map<String, dynamic>> convertedList = [];
+          // Validate final variants map
+          if (variantsMap.containsKey('colors')) {
+            debugPrint(
+                '[PD][DEBUG] Final colors count: ${variantsMap['colors'].length}');
+          }
 
-                  // Process each item in the list
-                  for (var item in value) {
-                    if (item is Map) {
-                      Map<String, dynamic> convertedItem = {};
+          if (variantsMap.containsKey('sizes')) {
+            debugPrint(
+                '[PD][DEBUG] Final sizes count: ${variantsMap['sizes'].length}');
+          }
+        }
 
-                      // Copy with proper typing
-                      item.forEach((itemKey, itemValue) {
-                        if (itemKey is String) {
-                          convertedItem[itemKey] = itemValue;
+        // Create product info from our properly copied data
+        final newProductInfo = ProductInfo.fromJson(productData);
+
+        // Debug log the result
+        if (newProductInfo.variants != null) {
+          debugPrint('[PD][DEBUG] Final ProductInfo variants:');
+          if (newProductInfo.variants!.containsKey('colors')) {
+            debugPrint(
+                '[PD][DEBUG] - Colors: ${newProductInfo.variants!["colors"]?.length}');
+            // Log each color
+            newProductInfo.variants!["colors"]?.forEach((color) {
+              debugPrint('[PD][DEBUG] - Color: ${color.text}');
+            });
+          }
+          if (newProductInfo.variants!.containsKey('sizes')) {
+            debugPrint(
+                '[PD][DEBUG] - Sizes: ${newProductInfo.variants!["sizes"]?.length}');
+            // Log each size
+            newProductInfo.variants!["sizes"]?.forEach((size) {
+              debugPrint('[PD][DEBUG] - Size: ${size.text}');
+            });
+          }
+        }
+
+        // Store this product info for potential enhancement later
+        _lastProductInfo = newProductInfo;
+
+        // Only notify if we have valid product data
+        if (newProductInfo.success) {
+          onProductInfoChanged(newProductInfo);
+        }
+
+        // If it's a Zara product, try to get more complete color and size data
+        if (isZaraProduct) {
+          // Let's request an updated set of colors and sizes for Zara products
+          // This is the temporary fix to get around the structured data extraction limitation
+          controller.runJavaScript('''
+            try {
+              // Function to fetch and report all Zara variants
+              function fetchZaraVariants() {
+                const results = { colors: [], sizes: [] };
+                
+                // Find color variants - specifically for Zara's structure
+                try {
+                  const colorContainer = document.querySelector(".product-detail-color-selector__colors");
+                  if (colorContainer) {
+                    const colorItems = colorContainer.querySelectorAll(
+                      ".product-detail-color-selector__color"
+                    );
+                    
+                    for (const colorItem of colorItems) {
+                      // Check if this color is selected
+                      const isSelected = !!colorItem.querySelector(
+                        ".product-detail-color-selector__color-button--is-selected"
+                      );
+                      
+                      // Get color area to extract the RGB value
+                      const colorArea = colorItem.querySelector(
+                        ".product-detail-color-selector__color-area"
+                      );
+                      if (!colorArea) continue;
+                      
+                      // Try to get color name from screen reader text
+                      const screenReaderText = colorItem.querySelector(".screen-reader-text");
+                      let colorName = screenReaderText
+                        ? screenReaderText.textContent.trim()
+                        : "";
+                      
+                      // If no name found, try button aria-label
+                      if (!colorName) {
+                        const colorButton = colorItem.querySelector("button");
+                        if (colorButton) {
+                          colorName = colorButton.getAttribute("aria-label") || "";
                         }
-                      });
-
-                      if (convertedItem.containsKey('text')) {
-                        convertedList.add(convertedItem);
+                      }
+                      
+                      // Extract RGB color from style
+                      let colorValue = "";
+                      const styleAttr = colorArea.getAttribute("style");
+                      if (styleAttr) {
+                        const rgbMatch = styleAttr.match(/background-color:\\s*([^;]+)/);
+                        if (rgbMatch && rgbMatch[1]) {
+                          colorValue = rgbMatch[1].trim();
+                        }
+                      }
+                      
+                      // Add to results if we have name
+                      if (colorName) {
+                        results.colors.push({
+                          text: colorName,
+                          selected: isSelected,
+                          value: colorValue || colorName,
+                        });
                       }
                     }
                   }
-
-                  variantsMap[key] = convertedList;
-                  debugPrint(
-                      '[PD][DEBUG] Converted ${convertedList.length} items in ${key}');
-                } else {
-                  variantsMap[key] = value;
+                } catch(e) {
+                  console.error("Error getting Zara colors:", e);
                 }
+                
+                // Find size variants - specifically for Zara's structure
+                try {
+                  const sizeContainer = document.querySelector(".size-selector-sizes");
+                  if (sizeContainer) {
+                    const sizeItems = sizeContainer.querySelectorAll(
+                      ".size-selector-sizes__size"
+                    );
+                    
+                    for (const sizeItem of sizeItems) {
+                      // Check if enabled (in stock)
+                      const isEnabled = !sizeItem.classList.contains(
+                        "size-selector-sizes-size--disabled"
+                      );
+                      
+                      // Get size label
+                      const sizeLabel = sizeItem.querySelector(
+                        ".size-selector-sizes-size__label"
+                      );
+                      if (!sizeLabel) continue;
+                      
+                      const sizeText = sizeLabel.textContent.trim();
+                      if (!sizeText) continue;
+                      
+                      // Check if selected
+                      const isSelected =
+                        sizeItem.classList.contains("selected") ||
+                        sizeItem.classList.contains("size-selector-sizes-size--selected") ||
+                        !!sizeItem.querySelector('[aria-selected="true"]');
+                      
+                      // Create value object with inStock info
+                      const valueObj = {
+                        size: sizeText,
+                        inStock: isEnabled,
+                      };
+                      
+                      // Add to results
+                      results.sizes.push({
+                        text: sizeText,
+                        selected: isSelected,
+                        value: JSON.stringify(valueObj),
+                      });
+                    }
+                  }
+                } catch(e) {
+                  console.error("Error getting Zara sizes:", e);
+                }
+                
+                return results;
               }
-            });
-
-            // Store the properly typed variants map
-            productData['variants'] = variantsMap;
-          }
-
-          // Create product info from our properly copied data
-          final newProductInfo = ProductInfo.fromJson(productData);
-
-          // Only notify if we have valid product data
-          if (newProductInfo.success) {
-            onProductInfoChanged(newProductInfo);
-          }
+              
+              // Get Zara-specific variants
+              const zaraVariants = fetchZaraVariants();
+              
+              // Log results for debugging
+              console.log("[PD][DEBUG] Zara variants retrieved:", 
+                zaraVariants.colors.length + " colors, " + 
+                zaraVariants.sizes.length + " sizes");
+                
+              // If we found more variants than what's currently in the message,
+              // send the enhanced data
+              if (zaraVariants.colors.length > 0 || zaraVariants.sizes.length > 0) {
+                // Create message with enhanced variants
+                const enhancedMessage = {
+                  type: "enhanced_variants",
+                  variants: zaraVariants
+                };
+                
+                // Send to Flutter
+                FlutterChannel.postMessage(JSON.stringify(enhancedMessage));
+              }
+            } catch(e) {
+              console.error("[PD][DEBUG] Error getting enhanced Zara variants:", e);
+            }
+          ''');
         }
       } else {
         // For non-product pages
@@ -406,6 +507,7 @@ class WebViewService {
               url: controller.currentUrl().toString(),
               success: true,
             );
+            _lastProductInfo = newProductInfo;
             onProductInfoChanged(newProductInfo);
           }
         }
@@ -415,10 +517,153 @@ class WebViewService {
     }
   }
 
+  // Process enhanced variants from Zara
+  void _processEnhancedVariants(Map<String, dynamic> enhancedVariants) {
+    if (_lastProductInfo == null) {
+      debugPrint('[PD][DEBUG] No product info to enhance');
+      return;
+    }
+
+    // Create a deep copy of the last product info
+    final productData = {
+      'isProductPage': _lastProductInfo!.isProductPage,
+      'title': _lastProductInfo!.title,
+      'price': _lastProductInfo!.price,
+      'originalPrice': _lastProductInfo!.originalPrice,
+      'currency': _lastProductInfo!.currency,
+      'imageUrl': _lastProductInfo!.imageUrl,
+      'description': _lastProductInfo!.description,
+      'sku': _lastProductInfo!.sku,
+      'availability': _lastProductInfo!.availability,
+      'brand': _lastProductInfo!.brand,
+      'extractionMethod': _lastProductInfo!.extractionMethod,
+      'url': _lastProductInfo!.url,
+      'success': _lastProductInfo!.success,
+      'variants': <String, dynamic>{},
+    };
+
+    // Process enhanced variants
+    final Map<String, dynamic> newVariants = {};
+
+    // Process colors
+    if (enhancedVariants.containsKey('colors') &&
+        enhancedVariants['colors'] is List) {
+      final List<dynamic> colors = enhancedVariants['colors'];
+      final List<Map<String, dynamic>> convertedColors = [];
+
+      debugPrint('[PD][DEBUG] Processing ${colors.length} enhanced colors');
+
+      for (final color in colors) {
+        if (color is Map) {
+          final Map<String, dynamic> convertedColor = {};
+
+          // Convert keys
+          color.forEach((key, value) {
+            if (key is String) {
+              convertedColor[key] = value;
+            }
+          });
+
+          if (convertedColor.containsKey('text')) {
+            convertedColors.add(convertedColor);
+            debugPrint(
+                '[PD][DEBUG] Added enhanced color: ${convertedColor['text']}');
+          }
+        }
+      }
+
+      if (convertedColors.isNotEmpty) {
+        newVariants['colors'] = convertedColors;
+      }
+    }
+
+    // Process sizes
+    if (enhancedVariants.containsKey('sizes') &&
+        enhancedVariants['sizes'] is List) {
+      final List<dynamic> sizes = enhancedVariants['sizes'];
+      final List<Map<String, dynamic>> convertedSizes = [];
+
+      debugPrint('[PD][DEBUG] Processing ${sizes.length} enhanced sizes');
+
+      for (final size in sizes) {
+        if (size is Map) {
+          final Map<String, dynamic> convertedSize = {};
+
+          // Convert keys
+          size.forEach((key, value) {
+            if (key is String) {
+              convertedSize[key] = value;
+            }
+          });
+
+          if (convertedSize.containsKey('text')) {
+            convertedSizes.add(convertedSize);
+            debugPrint(
+                '[PD][DEBUG] Added enhanced size: ${convertedSize['text']}');
+          }
+        }
+      }
+
+      if (convertedSizes.isNotEmpty) {
+        newVariants['sizes'] = convertedSizes;
+      }
+    }
+
+    // Preserve other options from original product info
+    if (_lastProductInfo!.variants != null &&
+        _lastProductInfo!.variants!.containsKey('otherOptions')) {
+      newVariants['otherOptions'] = [];
+
+      for (final option in _lastProductInfo!.variants!['otherOptions']!) {
+        final Map<String, dynamic> convertedOption = {
+          'text': option.text,
+          'selected': option.selected,
+          'value': option.value
+        };
+
+        (newVariants['otherOptions'] as List).add(convertedOption);
+      }
+    } else {
+      newVariants['otherOptions'] = [];
+    }
+
+    // Update variants in the product data
+    productData['variants'] = newVariants;
+
+    // Create enhanced product info
+    final enhancedProductInfo = ProductInfo.fromJson(productData);
+
+    // Debug the enhanced product
+    debugPrint('[PD][DEBUG] Created enhanced product info');
+    if (enhancedProductInfo.variants != null) {
+      debugPrint('[PD][DEBUG] Enhanced variants:');
+      if (enhancedProductInfo.variants!.containsKey('colors')) {
+        debugPrint(
+            '[PD][DEBUG] - Colors: ${enhancedProductInfo.variants!["colors"]?.length}');
+        enhancedProductInfo.variants!["colors"]?.forEach((color) {
+          debugPrint('[PD][DEBUG] - Enhanced color: ${color.text}');
+        });
+      }
+      if (enhancedProductInfo.variants!.containsKey('sizes')) {
+        debugPrint(
+            '[PD][DEBUG] - Sizes: ${enhancedProductInfo.variants!["sizes"]?.length}');
+        enhancedProductInfo.variants!["sizes"]?.forEach((size) {
+          debugPrint('[PD][DEBUG] - Enhanced size: ${size.text}');
+        });
+      }
+    }
+
+    // Store and notify
+    _lastProductInfo = enhancedProductInfo;
+    onProductInfoChanged(enhancedProductInfo);
+    debugPrint('[PD][DEBUG] Enhanced product info sent to UI');
+  }
+
   void _handlePageStarted(String url) {
     DebugLog.i('Page started loading: $url', category: DebugLog.WEBVIEW);
     onLoadingStateChanged(true);
     onUrlChanged(url);
+    _lastProductInfo = null; // Reset last product info on page change
   }
 
   void _handlePageFinished(String url) {
@@ -668,6 +913,7 @@ class WebViewService {
 
   Future<void> loadUrl(String url) async {
     DebugLog.i('Loading URL: $url', category: DebugLog.WEBVIEW);
+    _lastProductInfo = null; // Reset product info when loading a new URL
     controller.loadRequest(Uri.parse(url));
   }
 
@@ -691,6 +937,7 @@ class WebViewService {
 
   Future<void> reload() async {
     DebugLog.d('Reloading page', category: DebugLog.WEBVIEW);
+    _lastProductInfo = null; // Reset product info on reload
     await controller.reload();
   }
 }
