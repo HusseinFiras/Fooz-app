@@ -124,26 +124,16 @@ class WebViewService {
 
   void _handleJavaScriptMessage(JavaScriptMessage message) {
     try {
-      // Debug the raw message first
-      debugPrint('[PD][DEBUG] Raw message length: ${message.message.length}');
-
-      // For large messages, just show beginning and end
+      // Debug the raw message only if it's exceptionally large
       if (message.message.length > 1000) {
-        debugPrint(
-            '[PD][DEBUG] Raw message start: ${message.message.substring(0, 100)}...');
-        debugPrint(
-            '[PD][DEBUG] Raw message end: ${message.message.substring(message.message.length - 100)}');
-      } else {
-        debugPrint('[PD][DEBUG] Raw message: ${message.message}');
+        debugPrint('[PD] Raw message: ${message.message.substring(0, 100)}...');
       }
 
       final data = jsonDecode(message.message);
-      debugPrint(
-          '[PD][DEBUG] Received message from JS with keys: ${data.keys.join(", ")}');
-
+      
       // Check if this is an enhanced variants message from our custom Zara script
       if (data.containsKey('type') && data['type'] == 'enhanced_variants') {
-        debugPrint('[PD][DEBUG] Received enhanced variants data');
+        debugPrint('[PD] Received enhanced variants data');
 
         // Process enhanced variants only if we have a last product info
         if (_lastProductInfo != null && data.containsKey('variants')) {
@@ -162,48 +152,9 @@ class WebViewService {
         isZaraProduct = true;
       }
 
-      // Debug variants structure immediately after JSON decode
-      if (data.containsKey('variants')) {
-        final variants = data['variants'];
-        debugPrint('[PD][DEBUG] Variants keys: ${variants.keys.join(", ")}');
-
-        // Debug each variant type in detail
-        if (variants.containsKey('colors')) {
-          final colors = variants['colors'];
-          debugPrint(
-              '[PD][DEBUG] Raw colors: ${colors.runtimeType}, count: ${colors.length}');
-
-          // Dump the entire colors array for inspection
-          debugPrint('[PD][DEBUG] Raw colors JSON: ${jsonEncode(colors)}');
-
-          // Log first two colors to check structure
-          if (colors is List && colors.length > 0) {
-            for (int i = 0; i < min(colors.length, 2); i++) {
-              debugPrint('[PD][DEBUG] Color $i: ${jsonEncode(colors[i])}');
-            }
-          }
-        }
-
-        if (variants.containsKey('sizes')) {
-          final sizes = variants['sizes'];
-          debugPrint(
-              '[PD][DEBUG] Raw sizes: ${sizes.runtimeType}, count: ${sizes.length}');
-
-          // Dump the entire sizes array for inspection
-          debugPrint('[PD][DEBUG] Raw sizes JSON: ${jsonEncode(sizes)}');
-
-          // Log first few sizes to check structure
-          if (sizes is List && sizes.length > 0) {
-            for (int i = 0; i < min(sizes.length, 3); i++) {
-              debugPrint('[PD][DEBUG] Size $i: ${jsonEncode(sizes[i])}');
-            }
-          }
-        }
-      }
-
       // Process product information for Zara products
       if (data['isProductPage'] == true) {
-        debugPrint('[PD][DEBUG] Processing Zara product variants');
+        debugPrint('[PD] Processing product variants');
 
         // Create a properly typed copy of the original data
         final Map<String, dynamic> productData = {};
@@ -215,39 +166,21 @@ class WebViewService {
           }
         });
 
-        // Special debugging for variants
+        // Process variants data
         if (data.containsKey('variants') && data['variants'] is Map) {
           final originalVariants = data['variants'] as Map;
           final Map<String, dynamic> variantsMap = {};
 
-          // Debug the original structure first
-          if (originalVariants.containsKey('colors')) {
-            final colors = originalVariants['colors'];
-            debugPrint(
-                '[PD][DEBUG] Found ${colors.length} colors in Zara product');
-          }
-
-          if (originalVariants.containsKey('sizes')) {
-            final sizes = originalVariants['sizes'];
-            debugPrint(
-                '[PD][DEBUG] Found ${sizes.length} sizes in Zara product');
-          }
-
           // Copy variant data with proper typing
           originalVariants.forEach((key, value) {
             if (key is String) {
-              debugPrint('[PD][DEBUG] Processing variant type: $key');
               // For arrays of variants (colors, sizes, etc.)
               if (value is List) {
-                debugPrint(
-                    '[PD][DEBUG] Found ${value.length} items in $key list');
                 List<Map<String, dynamic>> convertedList = [];
 
                 // Process each item in the list, ensuring it's a properly typed Map
                 for (var i = 0; i < value.length; i++) {
                   var item = value[i];
-                  debugPrint(
-                      '[PD][DEBUG] Processing item $i in $key: ${item.runtimeType}');
 
                   if (item is Map) {
                     Map<String, dynamic> convertedItem = {};
@@ -261,27 +194,11 @@ class WebViewService {
 
                     if (convertedItem.containsKey('text')) {
                       convertedList.add(convertedItem);
-                      debugPrint(
-                          '[PD][DEBUG] Added item: ${convertedItem['text']}');
-                    } else {
-                      debugPrint(
-                          '[PD][DEBUG] Skipped item - missing text field');
                     }
-                  } else {
-                    debugPrint(
-                        '[PD][DEBUG] Item is not a Map: ${item.runtimeType}');
                   }
                 }
 
                 variantsMap[key] = convertedList;
-                debugPrint(
-                    '[PD][DEBUG] Converted ${convertedList.length} items in ${key}');
-
-                // Check the entire list to make sure
-                for (var i = 0; i < convertedList.length; i++) {
-                  debugPrint(
-                      '[PD][DEBUG] Converted $key $i: ${convertedList[i]['text']}');
-                }
               } else {
                 variantsMap[key] = value;
               }
@@ -290,42 +207,10 @@ class WebViewService {
 
           // Store the properly typed variants map
           productData['variants'] = variantsMap;
-
-          // Validate final variants map
-          if (variantsMap.containsKey('colors')) {
-            debugPrint(
-                '[PD][DEBUG] Final colors count: ${variantsMap['colors'].length}');
-          }
-
-          if (variantsMap.containsKey('sizes')) {
-            debugPrint(
-                '[PD][DEBUG] Final sizes count: ${variantsMap['sizes'].length}');
-          }
         }
 
         // Create product info from our properly copied data
         final newProductInfo = ProductInfo.fromJson(productData);
-
-        // Debug log the result
-        if (newProductInfo.variants != null) {
-          debugPrint('[PD][DEBUG] Final ProductInfo variants:');
-          if (newProductInfo.variants!.containsKey('colors')) {
-            debugPrint(
-                '[PD][DEBUG] - Colors: ${newProductInfo.variants!["colors"]?.length}');
-            // Log each color
-            newProductInfo.variants!["colors"]?.forEach((color) {
-              debugPrint('[PD][DEBUG] - Color: ${color.text}');
-            });
-          }
-          if (newProductInfo.variants!.containsKey('sizes')) {
-            debugPrint(
-                '[PD][DEBUG] - Sizes: ${newProductInfo.variants!["sizes"]?.length}');
-            // Log each size
-            newProductInfo.variants!["sizes"]?.forEach((size) {
-              debugPrint('[PD][DEBUG] - Size: ${size.text}');
-            });
-          }
-        }
 
         // Store this product info for potential enhancement later
         _lastProductInfo = newProductInfo;
@@ -337,8 +222,6 @@ class WebViewService {
 
         // If it's a Zara product, try to get more complete color and size data
         if (isZaraProduct) {
-          // Let's request an updated set of colors and sizes for Zara products
-          // This is the temporary fix to get around the structured data extraction limitation
           controller.runJavaScript('''
             try {
               // Function to fetch and report all Zara variants
@@ -456,31 +339,30 @@ class WebViewService {
               // Get Zara-specific variants
               const zaraVariants = fetchZaraVariants();
               
-              // Log results for debugging
-              console.log("[PD][DEBUG] Zara variants retrieved:", 
+              console.log("[PD] Zara variants retrieved:", 
                 zaraVariants.colors.length + " colors, " + 
                 zaraVariants.sizes.length + " sizes");
                 
-              // If we found more variants than what's currently in the message,
-              // send the enhanced data
-              if (zaraVariants.colors.length > 0 || zaraVariants.sizes.length > 0) {
-                // Create message with enhanced variants
-                const enhancedMessage = {
-                  type: "enhanced_variants",
-                  variants: zaraVariants
-                };
-                
-                // Send to Flutter
-                FlutterChannel.postMessage(JSON.stringify(enhancedMessage));
+                // If we found more variants than what's currently in the message,
+                // send the enhanced data
+                if (zaraVariants.colors.length > 0 || zaraVariants.sizes.length > 0) {
+                  // Create message with enhanced variants
+                  const enhancedMessage = {
+                    type: "enhanced_variants",
+                    variants: zaraVariants
+                  };
+                  
+                  // Send to Flutter
+                  FlutterChannel.postMessage(JSON.stringify(enhancedMessage));
+                }
+              } catch(e) {
+                console.error("[PD] Error getting enhanced Zara variants:", e);
               }
-            } catch(e) {
-              console.error("[PD][DEBUG] Error getting enhanced Zara variants:", e);
-            }
-          ''');
+            ''');
         }
       } else {
         // For non-product pages
-        debugPrint('[PD][DEBUG] Not a product page');
+        debugPrint('[PD] Not a product page');
       }
 
       // Handle URL change notification if present
@@ -491,8 +373,8 @@ class WebViewService {
         onUrlChanged(data['url']);
       }
     } catch (e, stackTrace) {
-      debugPrint('[PD][DEBUG] Error parsing product data: $e');
-      debugPrint('[PD][DEBUG] Stack trace: $stackTrace');
+      debugPrint('[PD] Error parsing product data: $e');
+      debugPrint('[PD] Stack trace: $stackTrace');
 
       // Fallback parsing for simple format (price|title)
       try {
@@ -512,7 +394,7 @@ class WebViewService {
           }
         }
       } catch (e) {
-        debugPrint('[PD][DEBUG] Error with fallback parsing: $e');
+        debugPrint('[PD] Error with fallback parsing: $e');
       }
     }
   }
@@ -520,7 +402,7 @@ class WebViewService {
   // Process enhanced variants from Zara
   void _processEnhancedVariants(Map<String, dynamic> enhancedVariants) {
     if (_lastProductInfo == null) {
-      debugPrint('[PD][DEBUG] No product info to enhance');
+      debugPrint('[PD] No product info to enhance');
       return;
     }
 
@@ -551,7 +433,7 @@ class WebViewService {
       final List<dynamic> colors = enhancedVariants['colors'];
       final List<Map<String, dynamic>> convertedColors = [];
 
-      debugPrint('[PD][DEBUG] Processing ${colors.length} enhanced colors');
+      debugPrint('[PD] Processing ${colors.length} enhanced colors');
 
       for (final color in colors) {
         if (color is Map) {
@@ -566,8 +448,6 @@ class WebViewService {
 
           if (convertedColor.containsKey('text')) {
             convertedColors.add(convertedColor);
-            debugPrint(
-                '[PD][DEBUG] Added enhanced color: ${convertedColor['text']}');
           }
         }
       }
@@ -583,7 +463,7 @@ class WebViewService {
       final List<dynamic> sizes = enhancedVariants['sizes'];
       final List<Map<String, dynamic>> convertedSizes = [];
 
-      debugPrint('[PD][DEBUG] Processing ${sizes.length} enhanced sizes');
+      debugPrint('[PD] Processing ${sizes.length} enhanced sizes');
 
       for (final size in sizes) {
         if (size is Map) {
@@ -598,8 +478,6 @@ class WebViewService {
 
           if (convertedSize.containsKey('text')) {
             convertedSizes.add(convertedSize);
-            debugPrint(
-                '[PD][DEBUG] Added enhanced size: ${convertedSize['text']}');
           }
         }
       }
@@ -634,29 +512,22 @@ class WebViewService {
     final enhancedProductInfo = ProductInfo.fromJson(productData);
 
     // Debug the enhanced product
-    debugPrint('[PD][DEBUG] Created enhanced product info');
+    debugPrint('[PD] Created enhanced product info');
     if (enhancedProductInfo.variants != null) {
-      debugPrint('[PD][DEBUG] Enhanced variants:');
       if (enhancedProductInfo.variants!.containsKey('colors')) {
         debugPrint(
-            '[PD][DEBUG] - Colors: ${enhancedProductInfo.variants!["colors"]?.length}');
-        enhancedProductInfo.variants!["colors"]?.forEach((color) {
-          debugPrint('[PD][DEBUG] - Enhanced color: ${color.text}');
-        });
+            '[PD] Enhanced colors: ${enhancedProductInfo.variants!["colors"]?.length}');
       }
       if (enhancedProductInfo.variants!.containsKey('sizes')) {
         debugPrint(
-            '[PD][DEBUG] - Sizes: ${enhancedProductInfo.variants!["sizes"]?.length}');
-        enhancedProductInfo.variants!["sizes"]?.forEach((size) {
-          debugPrint('[PD][DEBUG] - Enhanced size: ${size.text}');
-        });
+            '[PD] Enhanced sizes: ${enhancedProductInfo.variants!["sizes"]?.length}');
       }
     }
 
     // Store and notify
     _lastProductInfo = enhancedProductInfo;
     onProductInfoChanged(enhancedProductInfo);
-    debugPrint('[PD][DEBUG] Enhanced product info sent to UI');
+    debugPrint('[PD] Enhanced product info sent to UI');
   }
 
   void _handlePageStarted(String url) {

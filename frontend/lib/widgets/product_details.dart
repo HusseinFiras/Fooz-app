@@ -9,13 +9,20 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'cached_image_widget.dart';
+import '../screens/webview_screen.dart'; // Import WebView screen
 
 class ProductDetailsBottomSheet extends StatefulWidget {
   final ProductInfo productInfo;
+  final bool fromCart;
+  final bool fromWebView; // Add this parameter
+  final Function? onProductUpdated; // Add callback for notifying parent
 
   const ProductDetailsBottomSheet({
     Key? key,
     required this.productInfo,
+    this.fromCart = false,
+    this.fromWebView = false, // Default to false
+    this.onProductUpdated, // Optional callback
   }) : super(key: key);
 
   @override
@@ -29,50 +36,67 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
   bool _isInCart = false;
   bool _isInFavorites = false;
   bool _isLoading = false;
+  
+  // Track selected variants
+  String? _selectedColorText;
+  String? _selectedSizeText;
+  VariantOption? _selectedColor;
+  VariantOption? _selectedSize;
+  bool _selectionChanged = false; // Track if user has changed selections
 
   @override
   void initState() {
     super.initState();
     _checkProductStatus();
-    _debugLogProductInfo();
-
-    // Add this line to log variant data at initialization time
-    _logVariantData();
+    _logBasicProductInfo();
+    _initSelectedVariants();
   }
 
-  void _debugLogProductInfo() {
-    debugPrint('[PD][DEBUG] Product title: ${widget.productInfo.title}');
-    debugPrint('[PD][DEBUG] Product brand: ${widget.productInfo.brand}');
-
+  void _initSelectedVariants() {
+    // Initialize selected variants from product info's preselected variants
     if (widget.productInfo.variants != null) {
       final variants = widget.productInfo.variants!;
-      debugPrint('[PD][DEBUG] Variants keys: ${variants.keys.join(", ")}');
-
-      // Log color variants
+      
+      // Find initially selected color
       if (variants.containsKey('colors') && variants['colors'] != null) {
-        debugPrint(
-            '[PD][DEBUG] Color variants count: ${variants['colors']!.length}');
         for (final color in variants['colors']!) {
-          debugPrint(
-              '[PD][DEBUG] Color: ${color.text}, Selected: ${color.selected}, Value: ${color.value}');
+          if (color.selected) {
+            _selectedColor = color;
+            _selectedColorText = color.text;
+            break;
+          }
         }
-      } else {
-        debugPrint('[PD][DEBUG] No color variants found');
+      }
+      
+      // Find initially selected size
+      if (variants.containsKey('sizes') && variants['sizes'] != null) {
+        for (final size in variants['sizes']!) {
+          if (size.selected) {
+            _selectedSize = size;
+            _selectedSizeText = size.text;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  void _logBasicProductInfo() {
+    debugPrint('[PD] Product loaded: ${widget.productInfo.title}');
+    
+    if (widget.productInfo.variants != null) {
+      final variants = widget.productInfo.variants!;
+      
+      // Log basic variant information
+      if (variants.containsKey('colors') && variants['colors'] != null) {
+        debugPrint('[PD] Found ${variants['colors']!.length} color variants');
       }
 
-      // Log size variants
       if (variants.containsKey('sizes') && variants['sizes'] != null) {
-        debugPrint(
-            '[PD][DEBUG] Size variants count: ${variants['sizes']!.length}');
-        for (final size in variants['sizes']!) {
-          debugPrint(
-              '[PD][DEBUG] Size: ${size.text}, Selected: ${size.selected}, Value: ${size.value}');
-        }
-      } else {
-        debugPrint('[PD][DEBUG] No size variants found');
+        debugPrint('[PD] Found ${variants['sizes']!.length} size variants');
       }
     } else {
-      debugPrint('[PD][DEBUG] No variants data available');
+      debugPrint('[PD] No variants data available');
     }
   }
 
@@ -97,17 +121,33 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       _isLoading = true;
     });
 
-    final success = await _cartService.addToCart(widget.productInfo);
+    // Create a copy of the product info with selected variants
+    final productWithSelections = _getProductWithSelectedVariants();
+
+    // If product is already in cart, update it instead of adding a duplicate
+    if (_isInCart) {
+      // Remove existing version first
+      await _cartService.removeFromCart(widget.productInfo);
+    }
+    
+    // Add the product with current selections
+    final success = await _cartService.addToCart(productWithSelections);
 
     setState(() {
       _isInCart = success;
       _isLoading = false;
+      _selectionChanged = false; // Reset selection changed flag
     });
+
+    // Notify parent if callback exists
+    if (widget.onProductUpdated != null) {
+      widget.onProductUpdated!();
+    }
 
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Added to cart'),
+        SnackBar(
+          content: Text('Added to cart with ${_getVariantSelectionSummary()}'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -122,6 +162,76 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     }
   }
 
+  // Helper method to create a new ProductInfo with the selected variants
+  ProductInfo _getProductWithSelectedVariants() {
+    // Start with a copy of the original variants
+    Map<String, List<VariantOption>> selectedVariants = {};
+    
+    if (widget.productInfo.variants != null) {
+      // Copy existing variants
+      widget.productInfo.variants!.forEach((key, variantList) {
+        // Create a new list to avoid modifying the original
+        selectedVariants[key] = List<VariantOption>.from(variantList);
+      });
+    } else {
+      selectedVariants = {};
+    }
+    
+    // Update with selected variants
+    if (_selectedColor != null && selectedVariants.containsKey('colors')) {
+      selectedVariants['colors'] = selectedVariants['colors']!.map((option) {
+        return VariantOption(
+          text: option.text,
+          selected: option.text == _selectedColorText,
+          value: option.value,
+        );
+      }).toList();
+    }
+    
+    if (_selectedSize != null && selectedVariants.containsKey('sizes')) {
+      selectedVariants['sizes'] = selectedVariants['sizes']!.map((option) {
+        return VariantOption(
+          text: option.text,
+          selected: option.text == _selectedSizeText,
+          value: option.value,
+        );
+      }).toList();
+    }
+    
+    // Create a new ProductInfo with the updated selections
+    return ProductInfo(
+      isProductPage: widget.productInfo.isProductPage,
+      title: widget.productInfo.title,
+      price: widget.productInfo.price,
+      originalPrice: widget.productInfo.originalPrice,
+      currency: widget.productInfo.currency,
+      imageUrl: widget.productInfo.imageUrl,
+      description: widget.productInfo.description,
+      sku: widget.productInfo.sku,
+      availability: widget.productInfo.availability,
+      brand: widget.productInfo.brand,
+      extractionMethod: widget.productInfo.extractionMethod,
+      url: widget.productInfo.url,
+      success: widget.productInfo.success,
+      variants: selectedVariants,
+    );
+  }
+
+  // Helper method to get a text summary of the selected variants
+  String _getVariantSelectionSummary() {
+    List<String> selections = [];
+    
+    if (_selectedColorText != null) {
+      selections.add('Color: $_selectedColorText');
+    }
+    
+    if (_selectedSizeText != null) {
+      selections.add('Size: $_selectedSizeText');
+    }
+    
+    return selections.isEmpty ? 'no selections' : selections.join(', ');
+  }
+
   Future<void> _removeFromCart() async {
     setState(() {
       _isLoading = true;
@@ -133,6 +243,11 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       _isInCart = !success;
       _isLoading = false;
     });
+
+    // Notify parent if callback exists
+    if (widget.onProductUpdated != null) {
+      widget.onProductUpdated!();
+    }
 
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -156,11 +271,16 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       _isLoading = true;
     });
 
+    // Get the product with current selections
+    final productWithSelections = _getProductWithSelectedVariants();
     bool success;
+
     if (_isInFavorites) {
+      // Remove from favorites
       success = await _favoritesService.removeFromFavorites(widget.productInfo);
       if (success) {
         _isInFavorites = false;
+        _selectionChanged = false; // Reset selection changed flag
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Removed from favorites'),
@@ -169,9 +289,11 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         );
       }
     } else {
-      success = await _favoritesService.addToFavorites(widget.productInfo);
+      // Add to favorites with selected variants
+      success = await _favoritesService.addToFavorites(productWithSelections);
       if (success) {
         _isInFavorites = true;
+        _selectionChanged = false; // Reset selection changed flag
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Added to favorites'),
@@ -181,9 +303,45 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       }
     }
 
+    // Notify parent if callback exists
+    if (widget.onProductUpdated != null) {
+      widget.onProductUpdated!();
+    }
+
     setState(() {
       _isLoading = false;
     });
+  }
+
+  // Update the cart or favorites when selection changes
+  Future<void> _updateProductWithSelections() async {
+    if (!_selectionChanged) return; // Only update if selections were changed
+    
+    // Create updated product with the new selections
+    final updatedProduct = _getProductWithSelectedVariants();
+    
+    // If item is in cart, update it
+    if (_isInCart) {
+      // First remove the old version
+      await _cartService.removeFromCart(widget.productInfo);
+      // Then add the updated version
+      await _cartService.addToCart(updatedProduct);
+      debugPrint('[PD] Updated cart item with new selections');
+    }
+    
+    // If item is in favorites, update it
+    if (_isInFavorites) {
+      await _favoritesService.removeFromFavorites(widget.productInfo);
+      await _favoritesService.addToFavorites(updatedProduct);
+      debugPrint('[PD] Updated favorite item with new selections');
+    }
+    
+    _selectionChanged = false; // Reset the flag
+    
+    // Notify parent if callback exists
+    if (widget.onProductUpdated != null) {
+      widget.onProductUpdated!();
+    }
   }
 
   Widget _buildInfoRow(String label, String value, {TextStyle? style}) {
@@ -210,21 +368,11 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
 
   // Enhanced color variant section with improved RGB color handling
   Widget _buildColorVariants(List<VariantOption> colorOptions) {
-    debugPrint(
-        '[PD][DEBUG] _buildColorVariants called with ${colorOptions.length} options');
-
-    // Dump the raw color options for inspection
-    for (var i = 0; i < colorOptions.length; i++) {
-      debugPrint(
-          '[PD][DEBUG] Raw color option $i: ${colorOptions[i].text}, ${colorOptions[i].selected}, ${colorOptions[i].value}');
-    }
+    debugPrint('[PD] Building UI for ${colorOptions.length} color options');
 
     // Filter out nonsensical or placeholder options
     final filteredOptions = colorOptions.where((option) {
       final String lowerText = option.text.toLowerCase().trim();
-
-      // Log each option for debugging
-      debugPrint('[PD][DEBUG] Checking color option: "$lowerText"');
 
       // Skip options that don't look like real colors or are UI elements
       if (lowerText.contains('select') ||
@@ -233,7 +381,6 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
           lowerText.contains('privacy') ||
           lowerText.contains('company logo') ||
           lowerText.contains('i\'d rather not say')) {
-        debugPrint('[PD][DEBUG] Filtering out non-color option: "$lowerText"');
         return false;
       }
 
@@ -242,12 +389,9 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
 
     // If no valid options after filtering, don't show the section
     if (filteredOptions.isEmpty) {
-      debugPrint('[PD][DEBUG] No valid color options after filtering');
+      debugPrint('[PD] No valid color options to display');
       return const SizedBox.shrink();
     }
-
-    debugPrint(
-        '[PD][DEBUG] Displaying ${filteredOptions.length} color options');
 
     // For Zara products, try to extract and display all listed colors
     bool isZara = widget.productInfo.brand?.toLowerCase() == 'zara' ||
@@ -258,9 +402,24 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8.0),
-          child: Text(
-            'Colors',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          child: Row(
+            children: [
+              Text(
+                'Colors',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              if (_selectedColorText != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8.0),
+                  child: Text(
+                    '($_selectedColorText)',
+                    style: TextStyle(
+                      color: Colors.grey.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         Wrap(
@@ -268,14 +427,12 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
           runSpacing: 10,
           children: filteredOptions.map((option) {
             final String colorText = option.text;
-            final bool isSelected = option.selected;
+            final bool isSelected = colorText == _selectedColorText;
 
             // Try to parse RGB color from value if it exists
             Color? colorFromRGB;
             if (option.value != null && option.value!.contains('rgb')) {
               colorFromRGB = _parseRgbColor(option.value!);
-              debugPrint(
-                  '[PD][DEBUG] Parsed RGB color for $colorText: $colorFromRGB');
             }
 
             // Check if the variant has an image URL
@@ -290,8 +447,6 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
             // If using image URL
             if (hasImageUrl) {
               final imageUrl = _fixImageUrl(option.value!);
-              debugPrint(
-                  '[PD][DEBUG] Using image URL for color $colorText: $imageUrl');
 
               return Stack(
                 children: [
@@ -299,6 +454,15 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   GestureDetector(
                     onTap: () {
                       HapticFeedback.lightImpact();
+                      setState(() {
+                        _selectedColorText = colorText;
+                        _selectedColor = option;
+                        _selectionChanged = true; // Mark that a change was made
+                      });
+                      
+                      // Update cart/favorites immediately if selection changes
+                      _updateProductWithSelections();
+                      
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text('Selected color: $colorText')),
                       );
@@ -375,6 +539,15 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   GestureDetector(
                     onTap: () {
                       HapticFeedback.lightImpact();
+                      setState(() {
+                        _selectedColorText = colorText;
+                        _selectedColor = option;
+                        _selectionChanged = true; // Mark that a change was made
+                      });
+                      
+                      // Update cart/favorites immediately if selection changes
+                      _updateProductWithSelections();
+                      
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text('Selected color: $colorText')),
                       );
@@ -444,27 +617,16 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
 
   // Enhanced size variant display for Zara
   Widget _buildSizeVariants(List<VariantOption> sizeOptions) {
-    debugPrint(
-        '[PD][DEBUG] _buildSizeVariants called with ${sizeOptions.length} options');
-
-    // Dump the raw size options for inspection
-    for (var i = 0; i < sizeOptions.length; i++) {
-      debugPrint(
-          '[PD][DEBUG] Raw size option $i: ${sizeOptions[i].text}, ${sizeOptions[i].selected}, ${sizeOptions[i].value}');
-    }
+    debugPrint('[PD] Building UI for ${sizeOptions.length} size options');
 
     // Filter out nonsensical or placeholder options
     final filteredOptions = sizeOptions.where((option) {
       final String lowerText = option.text.toLowerCase().trim();
 
-      // Log each option for debugging
-      debugPrint('[PD][DEBUG] Checking size option: "$lowerText"');
-
       // Skip options that look like placeholders or form fields
       if (lowerText.contains('select') ||
           lowerText.contains('choose') ||
           lowerText.contains('i\'d rather not say')) {
-        debugPrint('[PD][DEBUG] Filtering out non-size option: "$lowerText"');
         return false;
       }
 
@@ -473,11 +635,9 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
 
     // If no valid options after filtering, don't show the section
     if (filteredOptions.isEmpty) {
-      debugPrint('[PD][DEBUG] No valid size options after filtering');
+      debugPrint('[PD] No valid size options to display');
       return const SizedBox.shrink();
     }
-
-    debugPrint('[PD][DEBUG] Displaying ${filteredOptions.length} size options');
 
     // For Zara products, ensure we have all common sizes displayed
     // This is a fallback in case the JS code doesn't send all available sizes
@@ -489,9 +649,24 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8.0),
-          child: Text(
-            'Sizes',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          child: Row(
+            children: [
+              Text(
+                'Sizes',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              if (_selectedSizeText != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8.0),
+                  child: Text(
+                    '($_selectedSizeText)',
+                    style: TextStyle(
+                      color: Colors.grey.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         Wrap(
@@ -511,27 +686,32 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   final valueMap =
                       jsonDecode(option.value!) as Map<String, dynamic>;
                   isInStock = valueMap['inStock'] ?? true;
-                  debugPrint(
-                      '[PD][DEBUG] Size ${option.text} inStock status: $isInStock (from JSON)');
                 } else if (option.value!.contains('out of stock') ||
                     option.value!.contains('unavailable') ||
                     option.value!.contains('sold out')) {
                   // Text-based indicators
                   isInStock = false;
-                  debugPrint(
-                      '[PD][DEBUG] Size ${option.text} marked as out of stock (from text)');
                 }
               } catch (e) {
-                debugPrint(
-                    '[PD][DEBUG] Error parsing size value for ${option.text}: $e');
                 // If parse fails, assume it's in stock
               }
             }
+
+            final bool isSelected = option.text == _selectedSizeText;
 
             return InkWell(
               onTap: isInStock
                   ? () {
                       HapticFeedback.lightImpact();
+                      setState(() {
+                        _selectedSizeText = option.text;
+                        _selectedSize = option;
+                        _selectionChanged = true; // Mark that a change was made
+                      });
+                      
+                      // Update cart/favorites immediately if selection changes
+                      _updateProductWithSelections();
+                      
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                             content: Text('Selected size: ${option.text}')),
@@ -556,15 +736,15 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   border: Border.all(
                     color: !isInStock
                         ? Colors.grey.shade300
-                        : option.selected
+                        : isSelected
                             ? Colors.black
                             : Colors.grey.shade300,
-                    width: option.selected ? 2 : 1,
+                    width: isSelected ? 2 : 1,
                   ),
                   borderRadius: BorderRadius.circular(4),
                   color: !isInStock
                       ? Colors.grey.shade100
-                      : option.selected
+                      : isSelected
                           ? Colors.black.withOpacity(0.05)
                           : Colors.white,
                 ),
@@ -573,12 +753,12 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                     Text(
                       option.text,
                       style: TextStyle(
-                        fontWeight: option.selected
+                        fontWeight: isSelected
                             ? FontWeight.bold
                             : FontWeight.normal,
                         color: !isInStock
                             ? Colors.grey.shade400
-                            : option.selected
+                            : isSelected
                                 ? Colors.black
                                 : Colors.black87,
                         decoration:
@@ -631,6 +811,50 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     return availability;
   }
 
+  // Add method to open product URL in WebView
+  void _openInWebView() {
+    final url = widget.productInfo.url;
+    if (url.isEmpty) return;
+    
+    final Uri uri = Uri.parse(url.startsWith('http') ? url : 'https://$url');
+    
+    // Extract the site name from the domain for use in the WebView title
+    final String domain = uri.host;
+    final String siteName = _extractSiteNameFromDomain(domain);
+    
+    Navigator.pop(context); // Close the bottom sheet first
+    
+    // Navigate to WebView with the product URL
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WebViewScreen(
+          initialSiteIndex: 0, // Default value
+          initialUrl: uri.toString(),
+        ),
+      ),
+    );
+  }
+  
+  // Helper method to extract a user-friendly site name from domain
+  String _extractSiteNameFromDomain(String domain) {
+    // Remove www. prefix if present
+    String cleanDomain = domain.startsWith('www.') 
+        ? domain.substring(4) 
+        : domain;
+    
+    // Extract the main domain part (e.g. zara.com from zara.com.tr)
+    List<String> parts = cleanDomain.split('.');
+    if (parts.length >= 2) {
+      // For common domains like zara.com, return capitalized "Zara"
+      String siteName = parts[0];
+      return siteName.substring(0, 1).toUpperCase() + siteName.substring(1);
+    }
+    
+    // Fallback to whole domain if we can't extract it properly
+    return cleanDomain;
+  }
+
   @override
   Widget build(BuildContext context) {
     final productHasBrand = widget.productInfo.brand != null &&
@@ -638,52 +862,9 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     final isZara = widget.productInfo.brand?.toLowerCase() == 'zara' ||
         widget.productInfo.url.toLowerCase().contains('zara.com');
 
-    // Extensive debug logging for product variants
-    debugPrint('[PD][DETAILS] ==========================================');
-    debugPrint('[PD][DETAILS] Building product details for product:');
-    debugPrint('[PD][DETAILS] Title: ${widget.productInfo.title}');
-    debugPrint('[PD][DETAILS] URL: ${widget.productInfo.url}');
-    debugPrint('[PD][DETAILS] Brand: ${widget.productInfo.brand}');
-    debugPrint(
-        '[PD][DETAILS] Price: ${widget.productInfo.price} ${widget.productInfo.currency}');
-
-    if (widget.productInfo.variants != null) {
-      final variants = widget.productInfo.variants!;
-      debugPrint(
-          '[PD][DETAILS] Variants available: ${variants.keys.join(", ")}');
-
-      // Log color variants in detail
-      if (variants.containsKey('colors')) {
-        final colors = variants['colors']!;
-        debugPrint('[PD][DETAILS] Colors count: ${colors.length}');
-        for (int i = 0; i < colors.length; i++) {
-          final color = colors[i];
-          debugPrint(
-              '[PD][DETAILS] Color $i: "${color.text}", selected: ${color.selected}, value: ${color.value}');
-        }
-      } else {
-        debugPrint('[PD][DETAILS] No colors found in variants');
-      }
-
-      // Log size variants in detail
-      if (variants.containsKey('sizes')) {
-        final sizes = variants['sizes']!;
-        debugPrint('[PD][DETAILS] Sizes count: ${sizes.length}');
-        for (int i = 0; i < sizes.length; i++) {
-          final size = sizes[i];
-          debugPrint(
-              '[PD][DETAILS] Size $i: "${size.text}", selected: ${size.selected}, value: ${size.value}');
-        }
-      } else {
-        debugPrint('[PD][DETAILS] No sizes found in variants');
-      }
-    } else {
-      debugPrint('[PD][DETAILS] No variants available in product info');
-    }
-    debugPrint('[PD][DETAILS] ==========================================');
-
-    // Call the logging method again to ensure we have current data
-    _logVariantData();
+    // Log basic product details for the UI
+    debugPrint('[PD] Building product details UI for: ${widget.productInfo.title}');
+    
     return Container(
       padding: const EdgeInsets.all(16),
       height: MediaQuery.of(context).size.height * 0.85,
@@ -704,7 +885,16 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
               ),
               IconButton(
                 icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
+                onPressed: () {
+                  // Ensure changes are saved before closing
+                  _updateProductWithSelections().then((_) {
+                    // Notify parent if callback exists
+                    if (widget.onProductUpdated != null) {
+                      widget.onProductUpdated!();
+                    }
+                    Navigator.pop(context);
+                  });
+                },
               ),
             ],
           ),
@@ -862,43 +1052,72 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
           ),
 
           // Action buttons
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: Icon(
-                    _isInFavorites ? Icons.favorite : Icons.favorite_border,
-                    color: _isInFavorites ? Colors.red : null,
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16.0),
+            child: Column(
+              children: [
+                // View on Website button - only show when product has URL, 
+                // opened from cart (meaning we want to see it on the website),
+                // and NOT opened from WebView (since we're already on the website)
+                if (widget.productInfo.url.isNotEmpty && 
+                    widget.fromCart && 
+                    !widget.fromWebView)
+                  Container(
+                    width: double.infinity,
+                    margin: EdgeInsets.only(bottom: 8),
+                    child: ElevatedButton.icon(
+                      icon: Icon(Icons.public, size: 18),
+                      label: Text('View on Website'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueGrey,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: _openInWebView,
+                    ),
                   ),
-                  label: Text(_isInFavorites ? 'Saved' : 'Favorite'),
-                  onPressed: _isLoading ? null : _toggleFavorite,
+                
+                // Existing add/remove from cart button
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: Icon(
+                          _isInFavorites ? Icons.favorite : Icons.favorite_border,
+                          color: _isInFavorites ? Colors.red : null,
+                        ),
+                        label: Text(_isInFavorites ? 'Saved' : 'Favorite'),
+                        onPressed: _isLoading ? null : _toggleFavorite,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _isInCart
+                              ? ElevatedButton.icon(
+                                  icon: const Icon(Icons.remove_shopping_cart),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red[700],
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  label: const Text('Remove'),
+                                  onPressed: _removeFromCart,
+                                )
+                              : ElevatedButton.icon(
+                                  icon: const Icon(Icons.shopping_cart),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.black,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  label: const Text('Add to Cart'),
+                                  onPressed: _addToCart,
+                                ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _isInCart
-                        ? ElevatedButton.icon(
-                            icon: const Icon(Icons.remove_shopping_cart),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red[700],
-                              foregroundColor: Colors.white,
-                            ),
-                            label: const Text('Remove'),
-                            onPressed: _removeFromCart,
-                          )
-                        : ElevatedButton.icon(
-                            icon: const Icon(Icons.shopping_cart),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.black,
-                              foregroundColor: Colors.white,
-                            ),
-                            label: const Text('Add to Cart'),
-                            onPressed: _addToCart,
-                          ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -944,7 +1163,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         return Color.fromRGBO(r, g, b, 1.0);
       }
     } catch (e) {
-      debugPrint('[PD][DEBUG] Failed to parse RGB value: $e');
+      debugPrint('[PD] Failed to parse RGB value: $e');
     }
 
     return null;
@@ -1036,33 +1255,5 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     final brightness =
         (299 * color.red + 587 * color.green + 114 * color.blue) / 1000;
     return brightness > 128;
-  }
-
-  void _logVariantData() {
-    debugPrint('[PD][DEBUG] Checking variants in product details');
-
-    if (widget.productInfo.variants != null) {
-      final variants = widget.productInfo.variants!;
-
-      if (variants.containsKey('colors')) {
-        final colors = variants['colors'];
-        debugPrint('[PD][DEBUG] Colors in product details: ${colors?.length}');
-      } else {
-        debugPrint('[PD][DEBUG] No colors key in variants');
-      }
-
-      if (variants.containsKey('sizes')) {
-        final sizes = variants['sizes'];
-        debugPrint('[PD][DEBUG] Sizes in product details: ${sizes?.length}');
-        if (sizes != null && sizes.isNotEmpty) {
-          debugPrint(
-              '[PD][DEBUG] Available sizes: ${sizes.map((s) => s.text).join(", ")}');
-        }
-      } else {
-        debugPrint('[PD][DEBUG] No sizes key in variants');
-      }
-    } else {
-      debugPrint('[PD][DEBUG] No variants in productInfo');
-    }
   }
 }

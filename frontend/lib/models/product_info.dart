@@ -37,57 +37,8 @@ class ProductInfo {
   });
 
   factory ProductInfo.fromJson(Map<String, dynamic> json) {
-    // Debug log
-    debugPrint('[PD][DEBUG] ProductInfo.fromJson started');
-    debugPrint('[PD][DEBUG] JSON keys: ${json.keys.join(", ")}');
-
-    if (json.containsKey('variants')) {
-      debugPrint('[PD][DEBUG] Variants type: ${json['variants'].runtimeType}');
-
-      if (json['variants'] is Map) {
-        Map variantsMap = json['variants'] as Map;
-        debugPrint('[PD][DEBUG] Variants keys: ${variantsMap.keys.join(", ")}');
-
-        if (variantsMap.containsKey('colors')) {
-          var colors = variantsMap['colors'];
-          debugPrint(
-              '[PD][DEBUG] Variants.colors type: ${colors.runtimeType}, length: ${colors.length}');
-
-          if (colors is List && colors.isNotEmpty) {
-            debugPrint(
-                '[PD][DEBUG] First color type: ${colors.first.runtimeType}');
-            if (colors.first is Map) {
-              Map firstColor = colors.first as Map;
-              debugPrint(
-                  '[PD][DEBUG] First color keys: ${firstColor.keys.join(", ")}');
-              if (firstColor.containsKey('text')) {
-                debugPrint(
-                    '[PD][DEBUG] First color text: ${firstColor['text']}');
-              }
-            }
-          }
-        }
-
-        if (variantsMap.containsKey('sizes')) {
-          var sizes = variantsMap['sizes'];
-          debugPrint(
-              '[PD][DEBUG] Variants.sizes type: ${sizes.runtimeType}, length: ${sizes.length}');
-
-          if (sizes is List && sizes.isNotEmpty) {
-            debugPrint(
-                '[PD][DEBUG] First size type: ${sizes.first.runtimeType}');
-            if (sizes.first is Map) {
-              Map firstSize = sizes.first as Map;
-              debugPrint(
-                  '[PD][DEBUG] First size keys: ${firstSize.keys.join(", ")}');
-              if (firstSize.containsKey('text')) {
-                debugPrint('[PD][DEBUG] First size text: ${firstSize['text']}');
-              }
-            }
-          }
-        }
-      }
-    }
+    // Basic debug info to show we started parsing
+    debugPrint('[PD] ProductInfo.fromJson - started parsing');
 
     // Process variants
     Map<String, List<VariantOption>>? variantMap;
@@ -99,7 +50,7 @@ class ProductInfo {
       if (variants.containsKey('colors')) {
         try {
           final List<dynamic> colorsList = variants['colors'];
-          debugPrint('[PD][DEBUG] Processing ${colorsList.length} colors');
+          debugPrint('[PD] Processing ${colorsList.length} colors');
 
           // Create a list for the processed colors
           final List<VariantOption> processedColors = [];
@@ -118,37 +69,21 @@ class ProductInfo {
                   }
                 });
 
-                // Debug log the color map
-                debugPrint(
-                    '[PD][DEBUG] Color $i map: ${colorMap.keys.join(", ")}');
-
                 // Now check if this has the required 'text' field
                 if (colorMap.containsKey('text')) {
-                  debugPrint('[PD][DEBUG] Adding color: ${colorMap['text']}');
                   processedColors.add(VariantOption.fromJson(colorMap));
-                } else {
-                  debugPrint(
-                      '[PD][DEBUG] Skipping invalid color format at index $i - missing text field');
                 }
-              } else {
-                debugPrint(
-                    '[PD][DEBUG] Skipping invalid color format at index $i - not a Map: ${color.runtimeType}');
               }
             } catch (e) {
-              debugPrint('[PD][DEBUG] Error processing color at index $i: $e');
+              debugPrint('[PD] Error processing color at index $i: $e');
             }
           }
 
           // Add to the variant map
           variantMap['colors'] = processedColors;
-          debugPrint('[PD][DEBUG] Processed ${processedColors.length} colors');
-          // Log each processed color
-          for (int i = 0; i < processedColors.length; i++) {
-            debugPrint(
-                '[PD][DEBUG] Processed color $i: ${processedColors[i].text}');
-          }
+          debugPrint('[PD] Processed ${processedColors.length} colors');
         } catch (e) {
-          debugPrint('[PD][DEBUG] Error processing colors list: $e');
+          debugPrint('[PD] Error processing colors list: $e');
         }
       }
 
@@ -156,7 +91,7 @@ class ProductInfo {
       if (variants.containsKey('sizes')) {
         try {
           final List<dynamic> sizesList = variants['sizes'];
-          debugPrint('[PD][DEBUG] Processing ${sizesList.length} sizes');
+          debugPrint('[PD] Processing ${sizesList.length} sizes');
 
           // Create a list for the processed sizes
           final List<VariantOption> processedSizes = [];
@@ -175,37 +110,21 @@ class ProductInfo {
                   }
                 });
 
-                // Debug log the size map
-                debugPrint(
-                    '[PD][DEBUG] Size $i map: ${sizeMap.keys.join(", ")}');
-
                 // Now check if this has the required 'text' field
                 if (sizeMap.containsKey('text')) {
-                  debugPrint('[PD][DEBUG] Adding size: ${sizeMap['text']}');
                   processedSizes.add(VariantOption.fromJson(sizeMap));
-                } else {
-                  debugPrint(
-                      '[PD][DEBUG] Skipping invalid size format at index $i - missing text field');
                 }
-              } else {
-                debugPrint(
-                    '[PD][DEBUG] Skipping invalid size format at index $i - not a Map: ${size.runtimeType}');
               }
             } catch (e) {
-              debugPrint('[PD][DEBUG] Error processing size at index $i: $e');
+              debugPrint('[PD] Error processing size at index $i: $e');
             }
           }
 
           // Add to the variant map
           variantMap['sizes'] = processedSizes;
-          debugPrint('[PD][DEBUG] Processed ${processedSizes.length} sizes');
-          // Log each processed size
-          for (int i = 0; i < processedSizes.length; i++) {
-            debugPrint(
-                '[PD][DEBUG] Processed size $i: ${processedSizes[i].text}');
-          }
+          debugPrint('[PD] Processed ${processedSizes.length} sizes');
         } catch (e) {
-          debugPrint('[PD][DEBUG] Error processing sizes list: $e');
+          debugPrint('[PD] Error processing sizes list: $e');
         }
       }
 
@@ -231,23 +150,17 @@ class ProductInfo {
                 // Now check if this has the required 'text' field
                 if (optionMap.containsKey('text')) {
                   processedOtherOptions.add(VariantOption.fromJson(optionMap));
-                } else {
-                  debugPrint(
-                      '[PD][DEBUG] Skipping invalid option format at index $i - missing text field');
                 }
-              } else {
-                debugPrint(
-                    '[PD][DEBUG] Skipping invalid option format at index $i - not a Map');
               }
             } catch (e) {
-              debugPrint('[PD][DEBUG] Error processing option at index $i: $e');
+              debugPrint('[PD] Error processing option at index $i: $e');
             }
           }
 
           // Add to the variant map
           variantMap['otherOptions'] = processedOtherOptions;
         } catch (e) {
-          debugPrint('[PD][DEBUG] Error processing otherOptions list: $e');
+          debugPrint('[PD] Error processing otherOptions list: $e');
         }
       }
     }
@@ -286,20 +199,14 @@ class ProductInfo {
       variants: variantMap,
     );
 
-    // Final debug information
+    // Final summary of variants
     if (result.variants != null) {
-      debugPrint('[PD][DEBUG] Final result variants info:');
+      debugPrint('[PD] Variants summary:');
       if (result.variants!.containsKey('colors')) {
-        debugPrint(
-            '[PD][DEBUG] Final colors count: ${result.variants!['colors']!.length}');
-        result.variants!['colors']!.forEach(
-            (color) => debugPrint('[PD][DEBUG] Final color: ${color.text}'));
+        debugPrint('[PD] Final colors count: ${result.variants!['colors']!.length}');
       }
       if (result.variants!.containsKey('sizes')) {
-        debugPrint(
-            '[PD][DEBUG] Final sizes count: ${result.variants!['sizes']!.length}');
-        result.variants!['sizes']!.forEach(
-            (size) => debugPrint('[PD][DEBUG] Final size: ${size.text}'));
+        debugPrint('[PD] Final sizes count: ${result.variants!['sizes']!.length}');
       }
     }
 

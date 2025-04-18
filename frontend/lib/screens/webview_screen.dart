@@ -299,6 +299,39 @@ class _WebViewScreenState extends State<WebViewScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    
+    // Extract site name from current URL
+    String displaySiteName = _dataService.getNameForIndex(_currentSiteIndex);
+    String displayInitial = displaySiteName[0]; // Default initial
+    
+    if (_currentUrl.isNotEmpty) {
+      try {
+        final Uri uri = Uri.parse(_currentUrl);
+        final String domain = uri.host;
+        
+        // Extract a better site name from URL if possible
+        if (domain.isNotEmpty) {
+          // Extract name from domain (e.g., www.zara.com -> Zara)
+          String name = domain;
+          if (name.startsWith('www.')) {
+            name = name.substring(4);
+          }
+          
+          // Get the first part of the domain (before the first dot)
+          final int dotIndex = name.indexOf('.');
+          if (dotIndex > 0) {
+            name = name.substring(0, dotIndex);
+            
+            // Capitalize the first letter for display
+            displaySiteName = name.substring(0, 1).toUpperCase() + name.substring(1);
+            displayInitial = displaySiteName[0];
+          }
+        }
+      } catch (e) {
+        // Fallback to DataService name if URL parsing fails
+        print('Error parsing URL: $e');
+      }
+    }
 
     return WillPopScope(
       onWillPop: _onWillPop,
@@ -318,7 +351,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
                   ),
                   child: Center(
                     child: Text(
-                      _dataService.getNameForIndex(_currentSiteIndex)[0],
+                      displayInitial,
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -330,7 +363,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
               ),
               const SizedBox(width: 10),
               Text(
-                _dataService.getNameForIndex(_currentSiteIndex),
+                displaySiteName,
                 style: const TextStyle(
                   fontWeight: FontWeight.w500,
                 ),

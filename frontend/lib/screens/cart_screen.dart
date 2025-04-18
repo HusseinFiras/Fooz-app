@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/product_info.dart';
 import '../services/cart_service.dart';
 import 'checkout_screen.dart'; // Import the new checkout screen
+import '../widgets/product_details.dart'; // For showing product details again
+import '../screens/webview_screen.dart'; // Import WebView screen
 
 class CartScreen extends StatefulWidget {
   const CartScreen({Key? key}) : super(key: key);
@@ -68,6 +70,103 @@ class _CartScreenState extends State<CartScreen> {
       // Refresh cart when returning from checkout
       _loadCartItems();
     });
+  }
+
+  // Open the product details sheet and allow navigating to product URL
+  void _showProductDetails(ProductInfo product) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => ProductDetailsBottomSheet(
+        productInfo: product,
+        fromCart: true,
+        onProductUpdated: () {
+          _loadCartItems();
+        },
+      ),
+    );
+  }
+
+  // Open product URL directly in WebView (no dialog)
+  Future<void> _openProductUrl(String url) async {
+    final Uri uri = Uri.parse(url.startsWith('http') ? url : 'https://$url');
+    
+    try {
+      // Open in WebView
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => WebViewScreen(
+            initialSiteIndex: 0, // Default value
+            initialUrl: uri.toString(),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  // Get a summary of the product's selected variants
+  Widget _buildVariantSelections(ProductInfo product) {
+    final List<Widget> selections = [];
+    
+    if (product.variants != null) {
+      // Check for selected color
+      if (product.variants!.containsKey('colors')) {
+        for (final color in product.variants!['colors']!) {
+          if (color.selected) {
+            selections.add(
+              Chip(
+                label: Text('Color: ${color.text}'),
+                backgroundColor: Colors.grey.shade100,
+                visualDensity: VisualDensity.compact,
+                labelStyle: TextStyle(fontSize: 12),
+              ),
+            );
+            break;
+          }
+        }
+      }
+      
+      // Check for selected size
+      if (product.variants!.containsKey('sizes')) {
+        for (final size in product.variants!['sizes']!) {
+          if (size.selected) {
+            selections.add(
+              Chip(
+                label: Text('Size: ${size.text}'),
+                backgroundColor: Colors.grey.shade100,
+                visualDensity: VisualDensity.compact,
+                labelStyle: TextStyle(fontSize: 12),
+              ),
+            );
+            break;
+          }
+        }
+      }
+    }
+    
+    if (selections.isEmpty) {
+      return SizedBox.shrink();
+    }
+    
+    return Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      children: selections,
+    );
   }
 
   @override
@@ -156,91 +255,107 @@ class _CartScreenState extends State<CartScreen> {
                           final product = _cartItems[index];
                           return Card(
                             margin: const EdgeInsets.only(bottom: 16),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Product image
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: product.imageUrl != null
-                                        ? Image.network(
-                                            product.imageUrl!,
-                                            width: 80,
-                                            height: 80,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) => Container(
-                                              width: 80,
-                                              height: 80,
-                                              color: Colors.grey[200],
-                                              child: const Icon(Icons.image_not_supported),
-                                            ),
-                                          )
-                                        : Container(
-                                            width: 80,
-                                            height: 80,
-                                            color: Colors.grey[200],
-                                            child: const Icon(Icons.shopping_bag),
-                                          ),
-                                  ),
-                                  
-                                  const SizedBox(width: 16),
-                                  
-                                  // Product details
-                                  Expanded(
-                                    child: Column(
+                            child: InkWell(
+                              onTap: () => _showProductDetails(product),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          product.title ?? 'Unknown Product',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
+                                        // Product image
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: product.imageUrl != null
+                                              ? Image.network(
+                                                  product.imageUrl!,
+                                                  width: 80,
+                                                  height: 80,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (_, __, ___) => Container(
+                                                    width: 80,
+                                                    height: 80,
+                                                    color: Colors.grey[200],
+                                                    child: const Icon(Icons.image_not_supported),
+                                                  ),
+                                                )
+                                              : Container(
+                                                  width: 80,
+                                                  height: 80,
+                                                  color: Colors.grey[200],
+                                                  child: const Icon(Icons.shopping_bag),
+                                                ),
                                         ),
-                                        const SizedBox(height: 4),
-                                        Row(
-                                          children: [
-                                            Text(
-                                              product.formattedPrice,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 16,
-                                              ),
-                                            ),
-                                            if (product.originalPrice != null) ...[
-                                              const SizedBox(width: 8),
+                                        
+                                        const SizedBox(width: 16),
+                                        
+                                        // Product details
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
                                               Text(
-                                                product.formattedOriginalPrice,
+                                                product.title ?? 'Unknown Product',
                                                 style: const TextStyle(
-                                                  decoration: TextDecoration.lineThrough,
-                                                  color: Colors.grey,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16,
+                                                ),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Row(
+                                                children: [
+                                                  Text(
+                                                    product.formattedPrice,
+                                                    style: const TextStyle(
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 16,
+                                                    ),
+                                                  ),
+                                                  if (product.originalPrice != null) ...[
+                                                    const SizedBox(width: 8),
+                                                    Text(
+                                                      product.formattedOriginalPrice,
+                                                      style: const TextStyle(
+                                                        decoration: TextDecoration.lineThrough,
+                                                        color: Colors.grey,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                product.brand ?? 'Unknown Brand',
+                                                style: TextStyle(
+                                                  color: Colors.grey[600],
                                                 ),
                                               ),
                                             ],
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          product.brand ?? 'Unknown Brand',
-                                          style: TextStyle(
-                                            color: Colors.grey[600],
                                           ),
+                                        ),
+                                        
+                                        // Remove button
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline),
+                                          onPressed: () => _removeFromCart(product),
+                                          color: Colors.grey[600],
                                         ),
                                       ],
                                     ),
-                                  ),
-                                  
-                                  // Remove button
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline),
-                                    onPressed: () => _removeFromCart(product),
-                                    color: Colors.grey[600],
-                                  ),
-                                ],
+                                    
+                                    // Show selected variants
+                                    if (product.variants != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 8.0, left: 4.0),
+                                        child: _buildVariantSelections(product),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
                           );
