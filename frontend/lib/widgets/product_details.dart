@@ -1,6 +1,7 @@
 // lib/widgets/product_details.dart
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import 'dart:math'; // Add import for min function
 import '../models/product_info.dart';
 import '../models/variant_option.dart';
 import '../services/cart_service.dart';
@@ -647,6 +648,10 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     // This is a fallback in case the JS code doesn't send all available sizes
     bool isZara = widget.productInfo.brand?.toLowerCase() == 'zara' ||
         widget.productInfo.url.toLowerCase().contains('zara.com');
+        
+    // For Stradivarius products
+    bool isStradivarius = widget.productInfo.brand?.toLowerCase() == 'stradivarius' ||
+        widget.productInfo.url.toLowerCase().contains('stradivarius.com');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

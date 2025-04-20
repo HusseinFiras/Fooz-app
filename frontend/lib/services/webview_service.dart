@@ -142,10 +142,20 @@ class WebViewService {
         return;
       }
 
-      // Check if this is a Zara product by URL or brand
-      bool isZaraProduct = false;
+      // Check if this is a Stradivarius product by URL or brand
+      bool isStradivariusProduct = false;
       String? url = data['url'] as String?;
       String? brand = data['brand'] as String?;
+      if (url != null && url.toLowerCase().contains('stradivarius.com')) {
+        isStradivariusProduct = true;
+        debugPrint('[PD] Stradivarius product detected by URL');
+      } else if (brand != null && brand.toLowerCase() == 'stradivarius') {
+        isStradivariusProduct = true;
+        debugPrint('[PD] Stradivarius product detected by brand');
+      }
+
+      // Check if this is a Zara product by URL or brand
+      bool isZaraProduct = false;
       if (url != null && url.toLowerCase().contains('zara.com')) {
         isZaraProduct = true;
       } else if (brand != null && brand.toLowerCase() == 'zara') {
@@ -360,6 +370,142 @@ class WebViewService {
               }
             ''');
         }
+        
+        // If it's a Stradivarius product, try to get the color variants
+        if (isStradivariusProduct) {
+          debugPrint('[PD] Extracting Stradivarius variants');
+          controller.runJavaScript('''
+            try {
+              // Function to fetch Stradivarius color variants
+              function fetchStradivariusVariants() {
+                const results = { colors: [], sizes: [] };
+                
+                // Find color variants - specifically for Stradivarius structure
+                try {
+                  const colorContainer = document.querySelector(".color-selector.color-selector--preview");
+                  
+                  if (colorContainer) {
+                    const colorItems = colorContainer.querySelectorAll("li");
+                    
+                    for (let i = 0; i < colorItems.length; i++) {
+                      const colorItem = colorItems[i];
+                      // Check if this color is selected
+                      const isSelected = colorItem.querySelector(".line-selected") !== null;
+                      
+                      // Get the image that represents the color
+                      const colorImage = colorItem.querySelector("img");
+                      if (!colorImage) continue;
+                      
+                      // Get the image URL
+                      const imageUrl = colorImage.getAttribute("src");
+                      if (!imageUrl) continue;
+                      
+                      // Try to extract a color name from the URL
+                      // URLs often contain color information in the filename (like 19257570102 where last digits might be color code)
+                      let colorName = "Color " + (i + 1);
+                      
+                      try {
+                        // Try to extract the product/color code from the URL
+                        const matches = imageUrl.match(/([0-9]+)-m/);
+                        if (matches && matches[1]) {
+                          // For Stradivarius, typically the last 2-3 digits in the product ID represent the color code
+                          const productId = matches[1];
+                          const colorCode = productId.slice(-2);
+                          
+                          // We don't have color names, so we'll use a generic naming with the code
+                          colorName = "Color " + colorCode;
+                        }
+                      } catch(e) {}
+                      
+                      // Add to results
+                      results.colors.push({
+                        text: colorName,
+                        selected: isSelected,
+                        value: imageUrl,  // Store the image URL as the value
+                      });
+                    }
+                  }
+                } catch(e) {
+                  console.error("Error getting Stradivarius colors:", e);
+                }
+                
+                // Extract sizes from Stradivarius products
+                try {
+                  const sizesContainer = document.querySelector(".sizes-lists .sizes-list");
+                  
+                  if (sizesContainer) {
+                    const sizeItems = sizesContainer.querySelectorAll(".size-item");
+                    
+                    for (let i = 0; i < sizeItems.length; i++) {
+                      const sizeItem = sizeItems[i];
+                      
+                      // Check if this size is selected (Stradivarius adds 'selected' class to selected size)
+                      const isSelected = sizeItem.classList.contains("selected");
+                      
+                      // Get stock info - by default assume it's in stock unless explicitly marked otherwise
+                      const stockInfo = sizeItem.querySelector(".stock-description");
+                      let isInStock = true;
+                      
+                      if (stockInfo && stockInfo.textContent) {
+                        // If there's any text in the stock description, it's usually "out of stock" or similar
+                        if (stockInfo.textContent.toLowerCase().includes("out of stock") ||
+                            stockInfo.textContent.toLowerCase().includes("notify me") ||
+                            stockInfo.textContent.toLowerCase().includes("back soon")) {
+                          isInStock = false;
+                        }
+                      }
+                      
+                      // Get the size name
+                      const sizeNameElement = sizeItem.querySelector(".size-name");
+                      if (!sizeNameElement) continue;
+                      
+                      const sizeName = sizeNameElement.textContent.trim();
+                      
+                      // Add to results
+                      results.sizes.push({
+                        text: sizeName,
+                        selected: isSelected,
+                        value: JSON.stringify({ size: sizeName, inStock: isInStock }),
+                      });
+                    }
+                  }
+                } catch(e) {
+                  console.error("Error getting Stradivarius sizes:", e);
+                }
+                
+                // Extract product description
+                try {
+                  const descriptionElement = document.querySelector(".description #descriptionId");
+                  if (descriptionElement) {
+                    // Send the description along with the variants
+                    results.description = descriptionElement.textContent.trim();
+                  }
+                } catch(e) {
+                  console.error("Error getting Stradivarius description:", e);
+                }
+                
+                return results;
+              }
+              
+              // Get Stradivarius-specific variants
+              const stradivariusVariants = fetchStradivariusVariants();
+              
+              // If we found colors or sizes, send the enhanced data
+              if (stradivariusVariants.colors.length > 0 || stradivariusVariants.sizes.length > 0) {
+                // Create message with enhanced variants
+                const enhancedMessage = {
+                  type: "enhanced_variants",
+                  variants: stradivariusVariants
+                };
+                
+                // Send to Flutter
+                FlutterChannel.postMessage(JSON.stringify(enhancedMessage));
+              }
+            } catch(e) {
+              console.error("Error getting enhanced Stradivarius variants:", e);
+            }
+          ''');
+        }
       } else {
         // For non-product pages
         debugPrint('[PD] Not a product page');
@@ -399,7 +545,7 @@ class WebViewService {
     }
   }
 
-  // Process enhanced variants from Zara
+  // Process enhanced variants from Zara or Stradivarius
   void _processEnhancedVariants(Map<String, dynamic> enhancedVariants) {
     if (_lastProductInfo == null) {
       debugPrint('[PD] No product info to enhance');
@@ -423,6 +569,14 @@ class WebViewService {
       'success': _lastProductInfo!.success,
       'variants': <String, dynamic>{},
     };
+
+    // Update description if it's provided in the enhanced variants
+    if (enhancedVariants.containsKey('description') && 
+        enhancedVariants['description'] != null && 
+        (productData['description'] == null || productData['description'].toString().isEmpty)) {
+      debugPrint('[PD] Using enhanced description');
+      productData['description'] = enhancedVariants['description'];
+    }
 
     // Process enhanced variants
     final Map<String, dynamic> newVariants = {};
@@ -515,12 +669,10 @@ class WebViewService {
     debugPrint('[PD] Created enhanced product info');
     if (enhancedProductInfo.variants != null) {
       if (enhancedProductInfo.variants!.containsKey('colors')) {
-        debugPrint(
-            '[PD] Enhanced colors: ${enhancedProductInfo.variants!["colors"]?.length}');
+        debugPrint('[PD] Enhanced colors: ${enhancedProductInfo.variants!["colors"]?.length}');
       }
       if (enhancedProductInfo.variants!.containsKey('sizes')) {
-        debugPrint(
-            '[PD] Enhanced sizes: ${enhancedProductInfo.variants!["sizes"]?.length}');
+        debugPrint('[PD] Enhanced sizes: ${enhancedProductInfo.variants!["sizes"]?.length}');
       }
     }
 

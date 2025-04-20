@@ -176,6 +176,18 @@ class ProductInfo {
         json['brand'] = 'Zara';
       }
     }
+    
+    // Special handling for Stradivarius products
+    bool isStradivariusProduct = false;
+    if (json.containsKey('url')) {
+      String url = json['url'] as String;
+      isStradivariusProduct = url.toLowerCase().contains('stradivarius.com');
+
+      if (isStradivariusProduct && !json.containsKey('brand')) {
+        // Force set the brand to Stradivarius if detected from URL
+        json['brand'] = 'Stradivarius';
+      }
+    }
 
     // Create the ProductInfo with properly processed variants
     final result = ProductInfo(
