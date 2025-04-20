@@ -2519,6 +2519,275 @@ const ZaraExtractor = {
     }
   },
 };
+
+// Stradivarius Extractor - Add this after other site-specific extractors
+const StradivariusExtractor = {
+  // Check if current site is Stradivarius
+  isStradivarius: function() {
+    const url = window.location.href.toLowerCase();
+    return url.includes("stradivarius.com");
+  },
+  
+  // Extract product information from Stradivarius pages
+  extract: function() {
+    try {
+      Logger.info("Extracting product data for Stradivarius");
+      
+      // Basic product information
+      const productInfo = {
+        isProductPage: true,
+        success: false,
+        brand: "Stradivarius",
+        url: window.location.href,
+        currency: "TRY", // Default to TRY, will try to extract actual currency
+        extractionMethod: "stradivarius-specific",
+      };
+      
+      // Extract title - Stradivarius usually has a h1 for product title
+      const titleElement = document.querySelector("h1");
+      if (titleElement) {
+        productInfo.title = titleElement.textContent.trim();
+      }
+      
+      // Extract price
+      // Look for price with various selectors specific to Stradivarius
+      const priceSelectors = [
+        '.product-price', 
+        '[data-testid="price"]',
+        '[data-qa-id="current-price"]',
+        '.price-current-amount',
+        '.actual-price'
+      ];
+      
+      for (const selector of priceSelectors) {
+        const priceElement = document.querySelector(selector);
+        if (priceElement && priceElement.textContent) {
+          // Process the price text to extract the number and currency
+          const priceText = priceElement.textContent.trim();
+          Logger.debug(`Found price: ${priceText}`);
+          
+          // Extract currency and numeric value
+          const currencyMatch = priceText.match(/(TRY|\$|€|£|₺)/);
+          if (currencyMatch) {
+            const currencyMap = {
+              "TRY": "TRY",
+              "₺": "TRY",
+              "$": "USD",
+              "€": "EUR",
+              "£": "GBP"
+            };
+            productInfo.currency = currencyMap[currencyMatch[1]] || "TRY";
+          }
+          
+          // Extract numeric price
+          const priceMatch = priceText.match(/[\d,.]+/);
+          if (priceMatch) {
+            // Handle different price formats (1.234,56 or 1,234.56)
+            let priceValue = priceMatch[0];
+            // If price contains both comma and period, handle Turkish format
+            if (priceValue.includes(',') && priceValue.includes('.')) {
+              // Remove periods (thousand separators) and replace comma with period
+              priceValue = priceValue.replace(/\./g, '').replace(',', '.');
+            } else if (priceValue.includes(',')) {
+              // If only comma exists, treat it as decimal separator
+              priceValue = priceValue.replace(',', '.');
+            }
+            productInfo.price = parseFloat(priceValue);
+            
+            // Mark as successful if we have both title and price
+            if (productInfo.title) {
+              productInfo.success = true;
+            }
+          }
+          break; // Stop after finding first valid price
+        }
+      }
+      
+      // Extract product image
+      // Stradivarius uses different image selectors, try them all
+      const imageSelectors = [
+        'img.multimedia-item-fade-in', // From the HTML you provided
+        '.multimedia-list-container img',
+        '.product-detail-image img',
+        '.multimedia-item.image img',
+        '[data-cy^="horizontal-image"] img',
+        '.product-images-container img'
+      ];
+      
+      for (const selector of imageSelectors) {
+        const images = document.querySelectorAll(selector);
+        if (images && images.length > 0) {
+          // Get the first image, which is usually the main product image
+          const mainImage = images[0];
+          if (mainImage.src) {
+            Logger.debug(`Found image: ${mainImage.src}`);
+            productInfo.imageUrl = mainImage.src;
+            break;
+          }
+        }
+      }
+      
+      // Extract color variants
+      const colorVariants = [];
+      // Updated selectors for Stradivarius colors - focusing on images in color lists
+      const colorSelectors = [
+        '.color-selector-container .color-item img',
+        '.colors-list .color-item img',
+        '.color-lists img',
+        '.product-colors .color-button img'
+      ];
+      
+      for (const selector of colorSelectors) {
+        const colorElements = document.querySelectorAll(selector);
+        if (colorElements && colorElements.length > 0) {
+          // Process each color variant
+          colorElements.forEach(colorElement => {
+            // Get color name from alt attribute
+            let colorName = colorElement.getAttribute('alt');
+            
+            // Skip if no alt text or it's a social media icon
+            const socialMediaTerms = ['facebook', 'instagram', 'twitter', 'youtube', 'pinterest', 'tiktok', 'linkedin', 'preference', 'privacy', 'company logo', 'ios', 'android'];
+            const isSocialMedia = !colorName || socialMediaTerms.some(term => 
+              colorName.toLowerCase().includes(term));
+              
+            if (colorName && !isSocialMedia) {
+              // Check if this color's parent element is selected
+              const colorItem = colorElement.closest('.color-item');
+              const isSelected = colorItem && (
+                colorItem.classList.contains('selected') || 
+                colorItem.hasAttribute('aria-selected') || 
+                colorItem.classList.contains('active') ||
+                colorItem.querySelector('.color-selected') !== null
+              );
+              
+              // Use the image source URL as the value
+              const imageUrl = colorElement.getAttribute('src');
+              
+              // Add to color variants
+              colorVariants.push({
+                text: colorName,
+                selected: isSelected,
+                value: imageUrl // Use the image URL so we can display the color swatch
+              });
+              Logger.debug(`Added color variant: ${colorName}`);
+            }
+          });
+          
+          if (colorVariants.length > 0) {
+            break; // Stop after finding color variants with one selector
+          }
+        }
+      }
+      
+      // Extract size variants
+      const sizeVariants = [];
+      // Stradivarius uses various selectors for size options
+      const sizeSelectors = [
+        '.size-selector-container .size-item',
+        '.size-selector .size-option',
+        '.product-sizes .size-button',
+        '[data-qa-id="sizes"] button',
+        '.size-selector-sizes__size'
+      ];
+      
+      for (const selector of sizeSelectors) {
+        const sizeElements = document.querySelectorAll(selector);
+        if (sizeElements && sizeElements.length > 0) {
+          // Process each size variant
+          sizeElements.forEach(sizeElement => {
+            // Try to get size name from various sources
+            let sizeText = '';
+            
+            // Try to find the text in a label element
+            const sizeLabel = sizeElement.querySelector('.size-label, .size-text, .size-selector-sizes-size__label');
+            if (sizeLabel && sizeLabel.textContent.trim()) {
+              sizeText = sizeLabel.textContent.trim();
+            }
+            // Try aria-label
+            else if (sizeElement.getAttribute('aria-label')) {
+              sizeText = sizeElement.getAttribute('aria-label');
+            }
+            // Try inner text as fallback
+            else if (sizeElement.textContent.trim()) {
+              sizeText = sizeElement.textContent.trim();
+            }
+            
+            if (sizeText) {
+              // Check if size is in stock
+              const isDisabled = sizeElement.classList.contains('disabled') || 
+                              sizeElement.classList.contains('out-of-stock') ||
+                              sizeElement.classList.contains('size-selector-sizes-size--disabled') ||
+                              sizeElement.hasAttribute('disabled');
+                              
+              const isSelected = sizeElement.classList.contains('selected') || 
+                               sizeElement.hasAttribute('aria-selected') ||
+                               sizeElement.classList.contains('size-selector-sizes-size--selected') ||
+                               !!sizeElement.querySelector('[aria-selected="true"]');
+              
+              // Create value object with stock info
+              const valueObj = {
+                size: sizeText,
+                inStock: !isDisabled
+              };
+              
+              // Add to size variants
+              sizeVariants.push({
+                text: sizeText,
+                selected: isSelected,
+                value: JSON.stringify(valueObj)
+              });
+              Logger.debug(`Added size variant: ${sizeText} (in stock: ${!isDisabled})`);
+            }
+          });
+          
+          if (sizeVariants.length > 0) {
+            break; // Stop after finding size variants with one selector
+          }
+        }
+      }
+      
+      // Add variants to product info if found
+      if (colorVariants.length > 0 || sizeVariants.length > 0) {
+        productInfo.variants = {};
+        if (colorVariants.length > 0) {
+          productInfo.variants.colors = colorVariants;
+        }
+        if (sizeVariants.length > 0) {
+          productInfo.variants.sizes = sizeVariants;
+        }
+      }
+      
+      // Extract description
+      const descriptionSelectors = [
+        '.product-description pre',
+        '.product-description',
+        '.description-content',
+        '[data-qa-id="description"]'
+      ];
+      
+      for (const selector of descriptionSelectors) {
+        const descriptionElement = document.querySelector(selector);
+        if (descriptionElement && descriptionElement.textContent.trim()) {
+          productInfo.description = descriptionElement.textContent.trim();
+          break;
+        }
+      }
+      
+      return productInfo;
+    } catch (e) {
+      Logger.error("Error extracting Stradivarius product data", e);
+      return {
+        isProductPage: true,
+        success: false,
+        brand: "Stradivarius",
+        url: window.location.href,
+        extractionMethod: "stradivarius-specific-failed",
+        error: e.message
+      };
+    }
+  }
+};
+
 // ==================== Main Product Extractor ====================
 
 // Main product extractor that orchestrates the extraction process
@@ -2553,6 +2822,15 @@ const ProductExtractor = {
         const zaraResult = ZaraExtractor.extract();
         if (zaraResult && zaraResult.success) {
           return zaraResult;
+        }
+      }
+
+      // Check for Stradivarius site
+      if (StradivariusExtractor.isStradivarius()) {
+        Logger.info("Detected Stradivarius site, using Stradivarius extractor");
+        const stradivariusResult = StradivariusExtractor.extract();
+        if (stradivariusResult && stradivariusResult.success) {
+          return stradivariusResult;
         }
       }
 

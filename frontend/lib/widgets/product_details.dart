@@ -396,6 +396,10 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     // For Zara products, try to extract and display all listed colors
     bool isZara = widget.productInfo.brand?.toLowerCase() == 'zara' ||
         widget.productInfo.url.toLowerCase().contains('zara.com');
+        
+    // For Stradivarius products
+    bool isStradivarius = widget.productInfo.brand?.toLowerCase() == 'stradivarius' ||
+        widget.productInfo.url.toLowerCase().contains('stradivarius.com');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -444,7 +448,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
             final Color displayColor =
                 colorFromRGB ?? _extractColorFromName(colorText) ?? Colors.grey;
 
-            // If using image URL
+            // If using image URL - this is for sites like Stradivarius that provide color images
             if (hasImageUrl) {
               final imageUrl = _fixImageUrl(option.value!);
 
