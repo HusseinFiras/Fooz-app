@@ -298,6 +298,50 @@ const ProductPageDetector = {
   // Check URL patterns common for product pages
   checkURL: function () {
     const url = window.location.href;
+    
+    // Check if it's Swarovski website
+    if (url.includes("swarovski.com")) {
+      // Swarovski product URLs have /p-XXXXXXX/ pattern in them
+      // Example: https://www.swarovski.com/en-TR/p-M5720860/Ariana-Grande-x-Swarovski-Tennis-bracelet-Mixed-cuts-Heart-White-Rhodium-plated/
+      const swarovskiProductPattern = /swarovski\.com\/.*\/p-[A-Za-z0-9]+\//;
+      
+      // Skip homepage and category pages
+      const swarovskiNonProductPattern = /swarovski\.com\/[a-z-]+\/?$/;
+      
+      if (swarovskiProductPattern.test(url)) {
+        Logger.info(`Swarovski product URL detected: ${url}`);
+        return true;
+      } else if (swarovskiNonProductPattern.test(url)) {
+        Logger.info(`Swarovski non-product page detected: ${url}`);
+        return false;
+      }
+      
+      // For other Swarovski pages, fall back to standard detection methods
+      return false;
+    }
+    
+    // Check if it's Cartier website
+    if (url.includes("cartier.com")) {
+      // For Cartier, only detect product pages with specific URL pattern
+      // Example: https://www.cartier.com/en-tr/jewellery/bracelets/juste-un-clou-bracelet-small-model-B6062617.html
+      // Cartier product URLs end with a product code like B6062617.html or CRWGSA0096.html
+      const cartierProductPattern = /cartier\.com\/.*\/.*\/.*-[A-Z0-9]+\.html$/;
+      
+      // Skip category pages
+      const cartierCategoryPattern = /cartier\.com\/.*\/.*\/collections\//;
+      
+      if (cartierProductPattern.test(url)) {
+        Logger.info(`Cartier product URL detected: ${url}`);
+        return true;
+      } else if (cartierCategoryPattern.test(url)) {
+        Logger.info(`Cartier category page detected: ${url}`);
+        return false;
+      }
+      
+      // For other Cartier pages, fall back to standard detection methods
+      return false;
+    }
+    
     const productURLPatterns = [
       /\/p\//, // Common pattern like /p/product-name
       /\/product\//, // Common pattern like /product/product-name
@@ -2788,6 +2832,125 @@ const StradivariusExtractor = {
   }
 };
 
+// Cartier Extractor - For extracting Cartier product information
+const CartierExtractor = {
+  // Check if current site is Cartier
+  isCartier: function() {
+    const url = window.location.href.toLowerCase();
+    return url.includes("cartier.com");
+  },
+  
+  // Extract product information from Cartier pages
+  extract: function() {
+    try {
+      Logger.info("Extracting product data for Cartier");
+      
+      // Basic product information
+      const result = BaseExtractor.createResultObject();
+      result.brand = "Cartier";
+      result.extractionMethod = "cartier-specific";
+      
+      // Extract title
+      const titleSelectors = [
+        '.ProductInfo-title', // Primary selector
+        'h1.ProductTitle',
+        '.product-title h1',
+        'h1.title'
+      ];
+      
+      const titleElement = DOMUtils.querySelector(titleSelectors);
+      if (titleElement) {
+        result.title = DOMUtils.getTextContent(titleElement);
+        Logger.debug(`Found Cartier title: ${result.title}`);
+      }
+      
+      // Extract price
+      const priceSelectors = [
+        '.ProductInfo-price', // Primary selector
+        '.product-price',
+        '.price .value',
+        '[data-element="price"]',
+        '[itemprop="price"]'
+      ];
+      
+      const priceElement = DOMUtils.querySelector(priceSelectors);
+      if (priceElement) {
+        const priceText = DOMUtils.getTextContent(priceElement);
+        result.price = FormatUtils.formatPrice(priceText);
+        result.currency = FormatUtils.detectCurrency(priceText);
+        Logger.debug(`Found Cartier price: ${result.price} ${result.currency}`);
+      }
+      
+      // Extract product image
+      const imageSelectors = [
+        '.ProductGallery img',
+        '.product-image img',
+        '[data-element="product-image"] img',
+        '[itemprop="image"]'
+      ];
+      
+      const imageElement = DOMUtils.querySelector(imageSelectors);
+      if (imageElement && imageElement.getAttribute('src')) {
+        result.imageUrl = FormatUtils.makeUrlAbsolute(imageElement.getAttribute('src'));
+        Logger.debug(`Found Cartier image: ${result.imageUrl}`);
+      }
+      
+      // Extract product description
+      const descriptionSelectors = [
+        '.ProductInfo-description',
+        '.product-description',
+        '[itemprop="description"]',
+        '[data-element="description"]'
+      ];
+      
+      const descriptionElement = DOMUtils.querySelector(descriptionSelectors);
+      if (descriptionElement) {
+        result.description = DOMUtils.getTextContent(descriptionElement);
+        Logger.debug("Found Cartier description");
+      }
+      
+      // Extract product SKU/Reference
+      // For Cartier, extract the product code from the URL (e.g., CRH4414200)
+      const skuMatch = window.location.pathname.match(/[A-Z0-9]{5,}(?=\.html)/);
+      if (skuMatch) {
+        result.sku = skuMatch[0];
+        Logger.debug(`Extracted Cartier SKU from URL: ${result.sku}`);
+      }
+      
+      // Try to find a reference code in the DOM as a backup
+      const skuSelectors = [
+        '.product-reference',
+        '.reference-number',
+        '[data-element="reference"]'
+      ];
+      
+      const skuElement = DOMUtils.querySelector(skuSelectors);
+      if (skuElement && !result.sku) {
+        result.sku = DOMUtils.getTextContent(skuElement).replace(/Ref.:|Reference:|Ref:/i, '').trim();
+        Logger.debug(`Found Cartier SKU in DOM: ${result.sku}`);
+      }
+      
+      // Mark as success if we have the essential product information
+      if (result.title && result.price) {
+        result.success = true;
+        Logger.info("Successfully extracted Cartier product data");
+      }
+      
+      return result;
+    } catch (e) {
+      Logger.error("Error extracting Cartier product data", e);
+      return {
+        isProductPage: true,
+        success: false,
+        brand: "Cartier",
+        url: window.location.href,
+        extractionMethod: "cartier-specific",
+        error: e.message
+      };
+    }
+  }
+};
+
 // ==================== Main Product Extractor ====================
 
 // Main product extractor that orchestrates the extraction process
@@ -2831,6 +2994,15 @@ const ProductExtractor = {
         const stradivariusResult = StradivariusExtractor.extract();
         if (stradivariusResult && stradivariusResult.success) {
           return stradivariusResult;
+        }
+      }
+      
+      // Check for Cartier site
+      if (CartierExtractor.isCartier()) {
+        Logger.info("Detected Cartier site, using Cartier extractor");
+        const cartierResult = CartierExtractor.extract();
+        if (cartierResult && cartierResult.success) {
+          return cartierResult;
         }
       }
 
@@ -2900,6 +3072,56 @@ function detectAndReportProduct(retryCount = 0) {
   Logger.info(`Running product detection (attempt: ${retryCount + 1})`);
 
   try {
+    // Check if we're on the Swarovski homepage or category page and skip detection
+    const url = window.location.href;
+    if (url.includes("swarovski.com")) {
+      // Swarovski product URLs have /p-XXXXXXX/ pattern
+      const swarovskiProductPattern = /swarovski\.com\/.*\/p-[A-Za-z0-9]+\//;
+      
+      // Check if this is NOT a product page
+      if (!swarovskiProductPattern.test(url)) {
+        Logger.info("Skipping product detection on Swarovski non-product page");
+        if (window.FlutterChannel) {
+          window.FlutterChannel.postMessage(JSON.stringify({
+            isProductPage: false,
+            success: false,
+            url: window.location.href,
+            message: "Skipped detection on Swarovski non-product page"
+          }));
+        }
+        return;
+      }
+    }
+    
+    // Check if we're on the Cartier homepage or category page and skip detection
+    if (url.includes("cartier.com")) {
+      // Skip detection on Cartier homepage
+      const isCartierHomepage = url.match(/cartier\.com\/[a-z-]+\/home/) || 
+                                url.includes("cartier.com/home") || 
+                                url.endsWith("cartier.com/") || 
+                                url.endsWith("cartier.com");
+      
+      // Skip detection on category pages
+      // Examples of category pages:
+      // https://www.cartier.com/en-tr/jewellery/collections/juste-un-clou/
+      // https://www.cartier.com/en-tr/watches/collections/santos-de-cartier/
+      const isCartierCategoryPage = url.match(/cartier\.com\/.*\/.*\/collections\//) || 
+                                   url.endsWith('/');
+      
+      if (isCartierHomepage || isCartierCategoryPage) {
+        Logger.info("Skipping product detection on Cartier non-product page");
+        if (window.FlutterChannel) {
+          window.FlutterChannel.postMessage(JSON.stringify({
+            isProductPage: false,
+            success: false,
+            url: window.location.href,
+            message: "Skipped detection on Cartier non-product page"
+          }));
+        }
+        return;
+      }
+    }
+
     // Check if FlutterChannel exists
     if (!window.FlutterChannel) {
       Logger.warn("FlutterChannel not available, cannot report data");
@@ -2963,9 +3185,54 @@ let lastUrl = window.location.href;
 // Watch for URL changes (for single-page apps)
 function checkForUrlChanges() {
   const currentUrl = window.location.href;
+  
   if (currentUrl !== lastUrl) {
     Logger.info(`URL changed to: ${currentUrl}`);
     lastUrl = currentUrl;
+    
+    // Skip detection on Swarovski non-product pages
+    if (currentUrl.includes("swarovski.com")) {
+      // Swarovski product URLs have /p-XXXXXXX/ pattern
+      const swarovskiProductPattern = /swarovski\.com\/.*\/p-[A-Za-z0-9]+\//;
+      
+      // Check if this is NOT a product page
+      if (!swarovskiProductPattern.test(currentUrl)) {
+        Logger.info("URL changed to Swarovski non-product page - skipping detection");
+        if (window.FlutterChannel) {
+          window.FlutterChannel.postMessage(JSON.stringify({
+            isProductPage: false,
+            success: false,
+            url: currentUrl,
+            message: "Skipped detection on Swarovski non-product page"
+          }));
+        }
+        setTimeout(checkForUrlChanges, 1000);
+        return;
+      }
+    }
+    
+    // Skip detection on Cartier homepage
+    if (currentUrl.includes("cartier.com")) {
+      const isCartierHomepage = currentUrl.match(/cartier\.com\/[a-z-]+\/home/) || 
+                                currentUrl.includes("cartier.com/home") || 
+                                currentUrl.endsWith("cartier.com/") || 
+                                currentUrl.endsWith("cartier.com");
+                                
+      if (isCartierHomepage) {
+        Logger.info("URL changed to Cartier homepage - skipping detection");
+        if (window.FlutterChannel) {
+          window.FlutterChannel.postMessage(JSON.stringify({
+            isProductPage: false,
+            success: false,
+            url: currentUrl,
+            message: "Skipped detection on Cartier homepage"
+          }));
+        }
+        setTimeout(checkForUrlChanges, 1000);
+        return;
+      }
+    }
+    
     detectAndReportProduct();
   }
 
@@ -2982,6 +3249,37 @@ const observer = new MutationObserver((mutations) => {
   }
 
   observerDebounceTimer = setTimeout(() => {
+    // Skip detection on Swarovski non-product pages
+    const currentUrl = window.location.href;
+    if (currentUrl.includes("swarovski.com")) {
+      // Swarovski product URLs have /p-XXXXXXX/ pattern
+      const swarovskiProductPattern = /swarovski\.com\/.*\/p-[A-Za-z0-9]+\//;
+      
+      // Check if this is NOT a product page
+      if (!swarovskiProductPattern.test(currentUrl)) {
+        Logger.debug("DOM changes on Swarovski non-product page - skipping detection");
+        return;
+      }
+    }
+    
+    // Skip detection on Cartier homepage
+    if (currentUrl.includes("cartier.com")) {
+      // Skip detection on Cartier homepage
+      const isCartierHomepage = currentUrl.match(/cartier\.com\/[a-z-]+\/home/) || 
+                                currentUrl.includes("cartier.com/home") || 
+                                currentUrl.endsWith("cartier.com/") || 
+                                currentUrl.endsWith("cartier.com");
+      
+      // Skip detection on category pages
+      const isCartierCategoryPage = currentUrl.match(/cartier\.com\/.*\/.*\/collections\//) || 
+                                   currentUrl.endsWith('/');
+      
+      if (isCartierHomepage || isCartierCategoryPage) {
+        Logger.debug("DOM changes on Cartier non-product page - skipping detection");
+        return;
+      }
+    }
+    
     Logger.debug("DOM changes detected, checking for product info");
     detectAndReportProduct();
   }, CONFIG.observerDebounceTime);
