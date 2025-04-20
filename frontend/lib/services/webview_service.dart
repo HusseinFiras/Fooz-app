@@ -131,7 +131,7 @@ class WebViewService {
 
       final data = jsonDecode(message.message);
       
-      // Check if this is an enhanced variants message from our custom Zara script
+      // Check if this is an enhanced variants message from our custom script
       if (data.containsKey('type') && data['type'] == 'enhanced_variants') {
         debugPrint('[PD] Received enhanced variants data');
 
@@ -161,8 +161,18 @@ class WebViewService {
       } else if (brand != null && brand.toLowerCase() == 'zara') {
         isZaraProduct = true;
       }
+      
+      // Check if this is a Guess product by URL or brand
+      bool isGuessProduct = false;
+      if (url != null && url.toLowerCase().contains('guess.eu')) {
+        isGuessProduct = true;
+        debugPrint('[PD] Guess product detected by URL');
+      } else if (brand != null && brand.toLowerCase() == 'guess') {
+        isGuessProduct = true;
+        debugPrint('[PD] Guess product detected by brand');
+      }
 
-      // Process product information for Zara products
+      // Process product information for product pages
       if (data['isProductPage'] == true) {
         debugPrint('[PD] Processing product variants');
 
@@ -507,103 +517,178 @@ class WebViewService {
           ''');
         }
         
-        // Check if this is a Swarovski product by URL or brand
-        bool isSwarovskiProduct = false;
-        if (url != null && url.toLowerCase().contains('swarovski.com')) {
-          isSwarovskiProduct = true;
-          debugPrint('[PD] Swarovski product detected by URL');
-        } else if (brand != null && brand.toLowerCase() == 'swarovski') {
-          isSwarovskiProduct = true;
-          debugPrint('[PD] Swarovski product detected by brand');
-        }
-        
-        // If it's a Swarovski product, try to get the color variants
-        if (isSwarovskiProduct) {
-          debugPrint('[PD] Extracting Swarovski variants');
+        // If it's a Guess product, try to get more accurate color and size data
+        if (isGuessProduct) {
+          debugPrint('[PD] Extracting Guess variants');
           controller.runJavaScript('''
             try {
-              // Function to fetch Swarovski color variants
-              function fetchSwarovskiVariants() {
+              // Function to fetch Guess variants with more accuracy
+              function fetchGuessVariants() {
                 const results = { colors: [], sizes: [] };
                 
                 // Extract colors
                 try {
-                  // Use the exact selector from the provided HTML structure
-                  const colorContainer = document.querySelector(".swa-product-color-selector-horizontal__tiles");
+                  const colorContainer = document.querySelector(".swatches-wrapper, .color-swatches");
                   if (colorContainer) {
-                    const colorItems = colorContainer.querySelectorAll(".swa-product-color-variant-thumbnail");
+                    const colorButtons = colorContainer.querySelectorAll("button.color-attribute");
                     
-                    console.log("Found " + colorItems.length + " Swarovski color options");
-                    
-                    for (let i = 0; i < colorItems.length; i++) {
-                      const colorItem = colorItems[i];
-                      // Determine if this color is selected
-                      const isSelected = colorItem.classList.contains("swa-product-color-variant-thumbnail--selected");
+                    for (let i = 0; i < colorButtons.length; i++) {
+                      const button = colorButtons[i];
+                      const colorSwatch = button.querySelector(".color-value");
                       
-                      // Get color link and extract color name from attributes
-                      const colorLink = colorItem.querySelector("a");
-                      if (!colorLink) continue;
-                      
-                      // Get color name from name attribute or aria-label
-                      let colorName = colorLink.getAttribute("name");
-                      if (!colorName) {
-                        colorName = colorLink.getAttribute("aria-label");
-                        if (colorName && colorName.startsWith("Product: ")) {
-                          colorName = colorName.substring("Product: ".length);
+                      if (colorSwatch) {
+                        // Get color code
+                        const colorCode = colorSwatch.getAttribute("data-attr-value");
+                        
+                        // Get color name
+                        const colorName = colorSwatch.getAttribute("data-attr-name");
+                        
+                        // Get image URL if available
+                        let imageUrl = "";
+                        const style = colorSwatch.getAttribute("style");
+                        if (style && style.includes("background-image")) {
+                          const match = style.match(/background-image\\s*:\\s*url\\(['"]?(.*?)['"]?\\)/i);
+                          if (match && match[1]) {
+                            imageUrl = match[1];
+                          }
+                        }
+                        
+                        // Check if selected
+                        const isSelected = button.classList.contains("attribute__value-wrapper--selected");
+                        
+                        // Check for selected text
+                        const selectedText = button.querySelector(".selected-assistive-text");
+                        const hasSelectedText = selectedText && selectedText.textContent.trim() === "selected";
+                        
+                        if (colorName) {
+                          results.colors.push({
+                            text: colorName,
+                            selected: isSelected || hasSelectedText || colorSwatch.classList.contains("selected"),
+                            value: imageUrl || colorCode
+                          });
+                          
+                          console.log("Added Guess color: " + colorName);
                         }
                       }
-                      
-                      if (!colorName) continue;
-                      
-                      // Get the image URL for the color
-                      const img = colorItem.querySelector("img");
-                      let imageUrl = null;
-                      
-                      if (img) {
-                        // Get image URL (make it absolute if needed)
-                        imageUrl = img.getAttribute("src");
-                        if (imageUrl && imageUrl.startsWith("//")) {
-                          imageUrl = "https:" + imageUrl;
-                        }
-                      }
-                      
-                      // Add to color variants
-                      results.colors.push({
-                        text: colorName,
-                        selected: isSelected,
-                        value: imageUrl || colorName // Use image URL as value if available
-                      });
-                      
-                      console.log("Added Swarovski color variant: " + colorName + (isSelected ? " (selected)" : ""));
                     }
-                  } else {
-                    console.log("Swarovski color container not found");
                   }
                 } catch(e) {
-                  console.error("Error getting Swarovski colors:", e);
+                  console.error("Error getting Guess colors:", e);
+                }
+                
+                // Extract sizes
+                try {
+                  const sizeContainer = document.querySelector(".variation.single-size, .size-container");
+                  if (sizeContainer) {
+                    // First try wrappers
+                    const sizeWrappers = sizeContainer.querySelectorAll(".attribute__value-wrapper");
+                    
+                    if (sizeWrappers && sizeWrappers.length > 0) {
+                      console.log("Found " + sizeWrappers.length + " size wrappers");
+                      
+                      for (let i = 0; i < sizeWrappers.length; i++) {
+                        const wrapper = sizeWrappers[i];
+                        
+                        // Check if wrapper is hidden (out of stock or unavailable)
+                        const isHidden = wrapper.classList.contains("d-none");
+                        
+                        // Get the size button inside the wrapper
+                        const sizeButton = wrapper.querySelector(".attribute__btn");
+                        if (!sizeButton) continue;
+                        
+                        // Get size value
+                        const sizeValue = sizeButton.getAttribute("data-attr-value") || sizeButton.textContent.trim();
+                        if (!sizeValue) continue;
+                        
+                        // Check if available
+                        const isAvailable = !isHidden && sizeButton.classList.contains("selectable") && 
+                                           !sizeButton.classList.contains("unselectable");
+                        
+                        // Check if selected
+                        const isSelected = sizeButton.classList.contains("selected") || 
+                                          sizeButton.getAttribute("aria-selected") === "true";
+                        
+                        // Create JSON value with inStock info
+                        const valueObj = { 
+                          size: sizeValue, 
+                          inStock: isAvailable 
+                        };
+                        
+                        results.sizes.push({
+                          text: sizeValue,
+                          selected: isSelected,
+                          value: JSON.stringify(valueObj)
+                        });
+                        
+                        console.log("Added Guess size: " + sizeValue + (isSelected ? " (selected)" : "") + 
+                                   (isAvailable ? "" : " (out of stock)"));
+                      }
+                    } else {
+                      // Fallback to direct buttons
+                      const sizeButtons = sizeContainer.querySelectorAll(".attribute__btn");
+                      
+                      console.log("Found " + sizeButtons.length + " size buttons");
+                      
+                      for (let i = 0; i < sizeButtons.length; i++) {
+                        const button = sizeButtons[i];
+                        
+                        // Get size value
+                        const sizeValue = button.getAttribute("data-attr-value") || button.textContent.trim();
+                        if (!sizeValue) continue;
+                        
+                        // Check if available
+                        const isAvailable = button.classList.contains("selectable") && 
+                                          !button.classList.contains("unselectable");
+                        
+                        // Check if selected
+                        const isSelected = button.classList.contains("selected") || 
+                                          button.getAttribute("aria-selected") === "true";
+                        
+                        // Create JSON value with inStock info
+                        const valueObj = { 
+                          size: sizeValue, 
+                          inStock: isAvailable 
+                        };
+                        
+                        results.sizes.push({
+                          text: sizeValue,
+                          selected: isSelected,
+                          value: JSON.stringify(valueObj)
+                        });
+                        
+                        console.log("Added Guess size: " + sizeValue + (isSelected ? " (selected)" : "") + 
+                                   (isAvailable ? "" : " (out of stock)"));
+                      }
+                    }
+                  }
+                } catch(e) {
+                  console.error("Error getting Guess sizes:", e);
                 }
                 
                 return results;
               }
+                    
+              // Get Guess-specific variants
+              const guessVariants = fetchGuessVariants();
               
-              // Get Swarovski-specific variants
-              const swarovskiVariants = fetchSwarovskiVariants();
+              // Log what we found
+              console.log("Guess variants retrieved: " + 
+                         guessVariants.colors.length + " colors, " + 
+                         guessVariants.sizes.length + " sizes");
               
-              // If we found colors or sizes, send the enhanced data
-              if (swarovskiVariants.colors.length > 0) {
-                console.log("Sending " + swarovskiVariants.colors.length + " Swarovski color variants to Flutter");
-                
+              // If we found any variants, send them to Flutter
+              if (guessVariants.colors.length > 0 || guessVariants.sizes.length > 0) {
                 // Create message with enhanced variants
                 const enhancedMessage = {
                   type: "enhanced_variants",
-                  variants: swarovskiVariants
+                  variants: guessVariants
                 };
                 
                 // Send to Flutter
                 FlutterChannel.postMessage(JSON.stringify(enhancedMessage));
               }
             } catch(e) {
-              console.error("Error getting enhanced Swarovski variants:", e);
+              console.error("Error getting enhanced Guess variants:", e);
             }
           ''');
         }
@@ -1065,3 +1150,4 @@ class WebViewService {
     await controller.reload();
   }
 }
+
