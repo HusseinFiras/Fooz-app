@@ -2951,6 +2951,266 @@ const CartierExtractor = {
   }
 };
 
+// Swarovski Extractor - For extracting Swarovski product information
+const SwarovskiExtractor = {
+  // Check if current site is Swarovski
+  isSwarovski: function() {
+    const url = window.location.href.toLowerCase();
+    return url.includes("swarovski.com");
+  },
+  
+  // Extract product information from Swarovski pages
+  extract: function() {
+    try {
+      Logger.info("Extracting product data for Swarovski");
+      
+      // Basic product information
+      const result = BaseExtractor.createResultObject();
+      result.brand = "Swarovski";
+      result.extractionMethod = "swarovski-specific";
+      
+      // Extract title
+      const titleSelectors = [
+        '.product-name h1', 
+        '.swa-product-basic-info__title',
+        '.swa-product-overview-title',
+        '.product-detail-title'
+      ];
+      
+      const titleElement = DOMUtils.querySelector(titleSelectors);
+      if (titleElement) {
+        result.title = DOMUtils.getTextContent(titleElement);
+        Logger.debug(`Found Swarovski title: ${result.title}`);
+      }
+      
+      // Extract price
+      const priceSelectors = [
+        '.swa-product-summary__price', 
+        '.price-sales',
+        '.product-price .value',
+        '[data-test-id="product-sales-price"]'
+      ];
+      
+      const priceElement = DOMUtils.querySelector(priceSelectors);
+      if (priceElement) {
+        const priceText = DOMUtils.getTextContent(priceElement);
+        result.price = FormatUtils.formatPrice(priceText);
+        result.currency = FormatUtils.detectCurrency(priceText);
+        Logger.debug(`Found Swarovski price: ${result.price} ${result.currency}`);
+      }
+
+      // Extract original price if available (for sale items)
+      const originalPriceSelectors = [
+        '.price-standard',
+        '.swa-product-summary__price--original',
+        '[data-test-id="product-standard-price"]'
+      ];
+
+      const originalPriceElement = DOMUtils.querySelector(originalPriceSelectors);
+      if (originalPriceElement) {
+        const originalPriceText = DOMUtils.getTextContent(originalPriceElement);
+        result.originalPrice = FormatUtils.formatPrice(originalPriceText);
+        Logger.debug(`Found Swarovski original price: ${result.originalPrice}`);
+      }
+      
+      // Extract product image
+      const imageSelectors = [
+        '.carousel-item.active img',
+        '.swa-product-gallery-carousel__main-image img',
+        '.swa-product-gallery img',
+        '[data-test-id="product-image"] img'
+      ];
+      
+      const imageElement = DOMUtils.querySelector(imageSelectors);
+      if (imageElement) {
+        let imageUrl = imageElement.getAttribute('src');
+        // Try to get larger image from data attributes if available
+        if (!imageUrl || imageUrl.includes('transparent.gif')) {
+          imageUrl = imageElement.getAttribute('data-src') || 
+                     imageElement.getAttribute('data-zoom-image') || 
+                     imageElement.getAttribute('data-large-img');
+        }
+        if (imageUrl) {
+          result.imageUrl = FormatUtils.makeUrlAbsolute(imageUrl);
+          Logger.debug(`Found Swarovski image: ${result.imageUrl}`);
+        }
+      }
+      
+      // Extract product description
+      const descriptionSelectors = [
+        '.product-details-description',
+        '.swa-product-content-details__description',
+        '.swa-product-details__description',
+        '[data-test-id="product-description"]'
+      ];
+      
+      const descriptionElement = DOMUtils.querySelector(descriptionSelectors);
+      if (descriptionElement) {
+        result.description = DOMUtils.getTextContent(descriptionElement);
+        Logger.debug("Found Swarovski description");
+      }
+      
+      // Extract product SKU/ID
+      // For Swarovski, we can extract the product code from the URL (e.g., 5642595)
+      const skuMatch = window.location.pathname.match(/\/p-[A-Za-z](\d+)\//);
+      if (skuMatch && skuMatch[1]) {
+        result.sku = skuMatch[1];
+        Logger.debug(`Extracted Swarovski SKU from URL: ${result.sku}`);
+      } else {
+        // Try to find SKU in the DOM
+        const skuSelectors = [
+          '.product-id',
+          '.swa-product-number',
+          '[data-test-id="product-id"]'
+        ];
+        
+        const skuElement = DOMUtils.querySelector(skuSelectors);
+        if (skuElement) {
+          result.sku = DOMUtils.getTextContent(skuElement).replace(/Item No.:|Art. Nr.:|Ref:/i, '').trim();
+          Logger.debug(`Found Swarovski SKU in DOM: ${result.sku}`);
+        }
+      }
+      
+      // Extract colors - Swarovski specific
+      this.extractSwarovskiColors(result);
+      
+      // Mark as success if we have the essential product information
+      if (result.title && result.price) {
+        result.success = true;
+        Logger.info("Successfully extracted Swarovski product data");
+      }
+      
+      return result;
+    } catch (e) {
+      Logger.error("Error extracting Swarovski product data", e);
+      return {
+        isProductPage: true,
+        success: false,
+        brand: "Swarovski",
+        url: window.location.href,
+        extractionMethod: "swarovski-specific",
+        error: e.message
+      };
+    }
+  },
+  
+  // Extract color variants specifically for Swarovski
+  extractSwarovskiColors: function(result) {
+    try {
+      Logger.info("Extracting Swarovski color variants");
+      
+      // Swarovski color variants are in a specific container
+      const colorContainer = document.querySelector('.swa-product-color-selector-horizontal__tiles');
+      
+      if (colorContainer) {
+        const colorItems = colorContainer.querySelectorAll('.swa-product-color-variant-thumbnail');
+        Logger.debug(`Found ${colorItems.length} Swarovski color options`);
+        
+        if (colorItems && colorItems.length > 0) {
+          for (const colorItem of colorItems) {
+            // Check if this color is selected
+            const isSelected = colorItem.classList.contains('swa-product-color-variant-thumbnail--selected');
+            
+            // Get color link and name
+            const colorLink = colorItem.querySelector('a');
+            if (!colorLink) continue;
+            
+            // Get color name from name attribute
+            let colorName = colorLink.getAttribute('name');
+            if (!colorName) {
+              colorName = colorLink.getAttribute('aria-label');
+              if (colorName && colorName.startsWith('Product: ')) {
+                colorName = colorName.substring('Product: '.length);
+              }
+            }
+            
+            if (!colorName) continue;
+            
+            // Get the image URL for the color
+            const img = colorItem.querySelector('img');
+            let imageUrl = null;
+            
+            if (img) {
+              // Get image URL
+              imageUrl = FormatUtils.makeUrlAbsolute(img.getAttribute('src'));
+            }
+            
+            // Add to color variants
+            result.variants.colors.push({
+              text: colorName,
+              selected: isSelected,
+              value: imageUrl || colorName // Use image URL as value if available
+            });
+            
+            Logger.debug(`Added Swarovski color: ${colorName}, selected: ${isSelected}`);
+          }
+        }
+      }
+      
+      // If no colors found from main selector, try alternative selectors
+      if (result.variants.colors.length === 0) {
+        const alternativeSelectors = [
+          '.swa-swatches-container .swa-swatch',
+          '.swa-product-variants .swa-variant-selector',
+          '.swa-product-color-selector .swa-color-selector-item'
+        ];
+        
+        for (const selector of alternativeSelectors) {
+          const colorElements = document.querySelectorAll(selector);
+          
+          if (colorElements && colorElements.length > 0) {
+            Logger.debug(`Found ${colorElements.length} color options with alternative selector: ${selector}`);
+            
+            for (const element of colorElements) {
+              // Check if selected
+              const isSelected = element.classList.contains('selected') || 
+                               element.classList.contains('active') ||
+                               element.getAttribute('aria-selected') === 'true';
+              
+              // Get color name from various possible sources
+              let colorName = element.getAttribute('title') || 
+                            element.getAttribute('data-color-name') || 
+                            element.getAttribute('aria-label');
+              
+              if (!colorName) {
+                const nameEl = element.querySelector('.color-name, .swatch-name');
+                if (nameEl) {
+                  colorName = DOMUtils.getTextContent(nameEl);
+                }
+              }
+              
+              if (!colorName) continue;
+              
+              // Get image if available
+              const img = element.querySelector('img');
+              let imageUrl = null;
+              
+              if (img && img.src) {
+                imageUrl = FormatUtils.makeUrlAbsolute(img.src);
+              }
+              
+              // Add to color variants
+              result.variants.colors.push({
+                text: colorName,
+                selected: isSelected,
+                value: imageUrl || colorName
+              });
+              
+              Logger.debug(`Added Swarovski color (alternative): ${colorName}`);
+            }
+            
+            if (result.variants.colors.length > 0) {
+              break; // Stop after finding colors with one selector
+            }
+          }
+        }
+      }
+    } catch (e) {
+      Logger.warn("Error extracting Swarovski colors", e);
+    }
+  }
+};
+
 // ==================== Main Product Extractor ====================
 
 // Main product extractor that orchestrates the extraction process
@@ -2978,8 +3238,7 @@ const ProductExtractor = {
           return gucciResult;
         }
       }
-
-      // Check for Zara site
+      
       if (ZaraExtractor.isZara()) {
         Logger.info("Detected Zara site, using Zara extractor");
         const zaraResult = ZaraExtractor.extract();
@@ -2987,8 +3246,7 @@ const ProductExtractor = {
           return zaraResult;
         }
       }
-
-      // Check for Stradivarius site
+      
       if (StradivariusExtractor.isStradivarius()) {
         Logger.info("Detected Stradivarius site, using Stradivarius extractor");
         const stradivariusResult = StradivariusExtractor.extract();
@@ -2997,12 +3255,19 @@ const ProductExtractor = {
         }
       }
       
-      // Check for Cartier site
       if (CartierExtractor.isCartier()) {
         Logger.info("Detected Cartier site, using Cartier extractor");
         const cartierResult = CartierExtractor.extract();
         if (cartierResult && cartierResult.success) {
           return cartierResult;
+        }
+      }
+      
+      if (SwarovskiExtractor.isSwarovski()) {
+        Logger.info("Detected Swarovski site, using Swarovski extractor");
+        const swarovskiResult = SwarovskiExtractor.extract();
+        if (swarovskiResult && swarovskiResult.success) {
+          return swarovskiResult;
         }
       }
 

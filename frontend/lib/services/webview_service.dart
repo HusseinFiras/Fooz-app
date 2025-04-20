@@ -506,6 +506,107 @@ class WebViewService {
             }
           ''');
         }
+        
+        // Check if this is a Swarovski product by URL or brand
+        bool isSwarovskiProduct = false;
+        if (url != null && url.toLowerCase().contains('swarovski.com')) {
+          isSwarovskiProduct = true;
+          debugPrint('[PD] Swarovski product detected by URL');
+        } else if (brand != null && brand.toLowerCase() == 'swarovski') {
+          isSwarovskiProduct = true;
+          debugPrint('[PD] Swarovski product detected by brand');
+        }
+        
+        // If it's a Swarovski product, try to get the color variants
+        if (isSwarovskiProduct) {
+          debugPrint('[PD] Extracting Swarovski variants');
+          controller.runJavaScript('''
+            try {
+              // Function to fetch Swarovski color variants
+              function fetchSwarovskiVariants() {
+                const results = { colors: [], sizes: [] };
+                
+                // Extract colors
+                try {
+                  // Use the exact selector from the provided HTML structure
+                  const colorContainer = document.querySelector(".swa-product-color-selector-horizontal__tiles");
+                  if (colorContainer) {
+                    const colorItems = colorContainer.querySelectorAll(".swa-product-color-variant-thumbnail");
+                    
+                    console.log("Found " + colorItems.length + " Swarovski color options");
+                    
+                    for (let i = 0; i < colorItems.length; i++) {
+                      const colorItem = colorItems[i];
+                      // Determine if this color is selected
+                      const isSelected = colorItem.classList.contains("swa-product-color-variant-thumbnail--selected");
+                      
+                      // Get color link and extract color name from attributes
+                      const colorLink = colorItem.querySelector("a");
+                      if (!colorLink) continue;
+                      
+                      // Get color name from name attribute or aria-label
+                      let colorName = colorLink.getAttribute("name");
+                      if (!colorName) {
+                        colorName = colorLink.getAttribute("aria-label");
+                        if (colorName && colorName.startsWith("Product: ")) {
+                          colorName = colorName.substring("Product: ".length);
+                        }
+                      }
+                      
+                      if (!colorName) continue;
+                      
+                      // Get the image URL for the color
+                      const img = colorItem.querySelector("img");
+                      let imageUrl = null;
+                      
+                      if (img) {
+                        // Get image URL (make it absolute if needed)
+                        imageUrl = img.getAttribute("src");
+                        if (imageUrl && imageUrl.startsWith("//")) {
+                          imageUrl = "https:" + imageUrl;
+                        }
+                      }
+                      
+                      // Add to color variants
+                      results.colors.push({
+                        text: colorName,
+                        selected: isSelected,
+                        value: imageUrl || colorName // Use image URL as value if available
+                      });
+                      
+                      console.log("Added Swarovski color variant: " + colorName + (isSelected ? " (selected)" : ""));
+                    }
+                  } else {
+                    console.log("Swarovski color container not found");
+                  }
+                } catch(e) {
+                  console.error("Error getting Swarovski colors:", e);
+                }
+                
+                return results;
+              }
+              
+              // Get Swarovski-specific variants
+              const swarovskiVariants = fetchSwarovskiVariants();
+              
+              // If we found colors or sizes, send the enhanced data
+              if (swarovskiVariants.colors.length > 0) {
+                console.log("Sending " + swarovskiVariants.colors.length + " Swarovski color variants to Flutter");
+                
+                // Create message with enhanced variants
+                const enhancedMessage = {
+                  type: "enhanced_variants",
+                  variants: swarovskiVariants
+                };
+                
+                // Send to Flutter
+                FlutterChannel.postMessage(JSON.stringify(enhancedMessage));
+              }
+            } catch(e) {
+              console.error("Error getting enhanced Swarovski variants:", e);
+            }
+          ''');
+        }
       } else {
         // For non-product pages
         debugPrint('[PD] Not a product page');
