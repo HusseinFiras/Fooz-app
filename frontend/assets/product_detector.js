@@ -4190,6 +4190,611 @@ const MangoExtractor = {
   }
 };
 
+// Bershka Extractor - Added to support Bershka product detection
+const BershkaExtractor = {
+  // Check if current site is Bershka
+  isApplicable: function () {
+    return (
+      window.location.hostname.includes("bershka.com") ||
+      document.querySelector('meta[content*="bershka.com"]') !== null
+    );
+  },
+
+  // Extract product information specific to Bershka site
+  extract: function () {
+    try {
+      Logger.info("Extracting product data using Bershka-specific extractor");
+      
+      // Initialize product result with defaults
+      const result = {
+        isProductPage: true,
+        title: null,
+        price: null,
+        originalPrice: null,
+        currency: null,
+        imageUrl: null,
+        description: null,
+        sku: null,
+        availability: null,
+        brand: "Bershka",
+        extractionMethod: "bershka-specific",
+        url: window.location.href,
+        success: false,
+        variants: {
+          colors: [],
+          sizes: [],
+          otherOptions: []
+        }
+      };
+      
+      // Extract product title
+      const titleSelectors = [
+        'h1.product-title',
+        '.pdp-title-card-details h1', 
+        '.product-detail-info h1',
+        '.product-info h1'
+      ];
+      
+      const titleElement = DOMUtils.querySelector(titleSelectors);
+      if (titleElement) {
+        result.title = DOMUtils.getTextContent(titleElement);
+        Logger.debug(`Found Bershka title: ${result.title}`);
+      }
+      
+      // Extract product price
+      const priceSelectors = [
+        '.current-price-elem',
+        '.product-price',
+        '.pdp-price'
+      ];
+      
+      const priceElement = DOMUtils.querySelector(priceSelectors);
+      if (priceElement) {
+        const priceText = DOMUtils.getTextContent(priceElement);
+        result.price = FormatUtils.formatPrice(priceText);
+        
+        // Extract currency from price text
+        const currencyMatch = priceText.match(/([₺$€£])/);
+        if (currencyMatch) {
+          const currencySymbol = currencyMatch[1];
+          switch (currencySymbol) {
+            case '₺': result.currency = 'TRY'; break;
+            case '$': result.currency = 'USD'; break;
+            case '€': result.currency = 'EUR'; break;
+            case '£': result.currency = 'GBP'; break;
+            default: result.currency = 'TRY'; // Default to TRY for Turkey
+          }
+        } else {
+          result.currency = 'TRY'; // Default to TRY for Turkey
+        }
+        
+        Logger.debug(`Found Bershka price: ${result.price} ${result.currency}`);
+      }
+      
+      // Extract original price (for sales)
+      const originalPriceSelectors = [
+        '.previous-price',
+        '.pdp-price .original-price',
+        '.price-old'
+      ];
+      
+      const originalPriceElement = DOMUtils.querySelector(originalPriceSelectors);
+      if (originalPriceElement) {
+        const originalPriceText = DOMUtils.getTextContent(originalPriceElement);
+        result.originalPrice = FormatUtils.formatPrice(originalPriceText);
+        Logger.debug(`Found Bershka original price: ${result.originalPrice}`);
+      }
+      
+      // Extract product image
+      const imageSelectors = [
+        '.image-section img',
+        '.pdp-image-main img',
+        '.product-image-container img'
+      ];
+      
+      const imageElement = DOMUtils.querySelector(imageSelectors);
+      if (imageElement) {
+        const imageSrc = imageElement.src || imageElement.getAttribute('data-src');
+        if (imageSrc) {
+          result.imageUrl = FormatUtils.makeUrlAbsolute(imageSrc);
+          Logger.debug(`Found Bershka image: ${result.imageUrl}`);
+        }
+      }
+      
+      // Extract product SKU/ID
+      const skuSelectors = [
+        '.product-reference',
+        '.product-detail-sku',
+        '.product-id'
+      ];
+      
+      const skuElement = DOMUtils.querySelector(skuSelectors);
+      if (skuElement) {
+        result.sku = DOMUtils.getTextContent(skuElement).replace(/Ref:|REF:|\s+/gi, '');
+        Logger.debug(`Found Bershka SKU: ${result.sku}`);
+      }
+      
+      // Extract colors - Bershka specific
+      this.extractBershkaColors(result);
+      
+      // Extract sizes - Bershka specific
+      this.extractBershkaSizes(result);
+      
+      // Mark as success if we have the essential product information
+      if (result.title && result.price) {
+        result.success = true;
+        Logger.info("Successfully extracted Bershka product data");
+      }
+      
+      return result;
+    } catch (e) {
+      Logger.error("Error extracting Bershka product data", e);
+      return {
+        isProductPage: true,
+        success: false,
+        brand: "Bershka",
+        url: window.location.href,
+        extractionMethod: "bershka-specific",
+        error: e.message
+      };
+    }
+  },
+  
+  // Extract color variants specifically for Bershka - including hidden colors
+  extractBershkaColors: function(result) {
+    try {
+      Logger.info("Extracting Bershka color variants");
+      
+      // STRATEGY 1: Get all colors from the expanded colors-bar dialog which contains ALL colors
+      const colorsBarDialog = document.querySelector('.colors-bar__dialog, .colors-bar--mobile');
+      
+      if (colorsBarDialog) {
+        // Get all color items from the expanded dialog
+        const colorItems = colorsBarDialog.querySelectorAll('.colors-bar__color-item, .colors-bar__link');
+        Logger.debug(`Found ${colorItems.length} color options in colors-bar dialog`);
+        
+        if (colorItems && colorItems.length > 0) {
+          for (const colorItem of colorItems) {
+            // Extract color id
+            const colorId = colorItem.id ? colorItem.id.replace('color-', '') : '';
+            
+            // Check if this color is selected
+            const isSelected = 
+              colorItem.classList.contains('colors-bar__color-item--selected') ||
+              colorItem.getAttribute('aria-selected') === 'true';
+            
+            // Get the color name from various possible elements
+            let colorName = '';
+            
+            // Try getting from color-name element
+            const colorNameElement = colorItem.querySelector('.colors-bar__color-name');
+            if (colorNameElement) {
+              colorName = DOMUtils.getTextContent(colorNameElement);
+            }
+            
+            // If name not found in color name element, try the aria label
+            if (!colorName) {
+              const colorLink = colorItem.querySelector('.colors-bar__link') || colorItem;
+              if (colorLink) {
+                colorName = colorLink.getAttribute('aria-label') || colorLink.getAttribute('aria-describedby');
+              }
+            }
+            
+            // Try to get name from popup/tooltip element
+            if (!colorName) {
+              const tooltip = document.querySelector(`#${colorItem.getAttribute('aria-describedby')}`);
+              if (tooltip) {
+                const tooltipText = tooltip.querySelector('.colors-bar__color-name');
+                if (tooltipText) {
+                  colorName = DOMUtils.getTextContent(tooltipText);
+                }
+              }
+            }
+            
+            // If still no name, try alt text of the image
+            if (!colorName) {
+              const img = colorItem.querySelector('img');
+              if (img) {
+                colorName = img.getAttribute('alt');
+              }
+            }
+            
+            // If still no name and we have colorId, use that
+            if (!colorName && colorId) {
+              // Try to map color codes to names
+              const colorIdMap = {
+                '091': 'Gold',
+                '050': 'Pink',
+                '100': 'Brown',
+                '712': 'Orange',
+                '800': 'Silver',
+                '040': 'Blue',
+                '250': 'Green',
+                '251': 'Dark Green',
+                '500': 'Black',
+                '251': 'White',
+                '600': 'Yellow',
+                // Add more color codes as needed
+              };
+              
+              colorName = colorIdMap[colorId] || `Color ${colorId}`;
+            }
+            
+            // Skip if no color name found
+            if (!colorName) continue;
+            
+            // Get the image URL for the color
+            const img = colorItem.querySelector('img');
+            let imageUrl = null;
+            
+            if (img) {
+              imageUrl = FormatUtils.makeUrlAbsolute(img.getAttribute('src'));
+            }
+            
+            // Add to color variants if not already present
+            if (!result.variants.colors.some(c => c.text === colorName)) {
+              result.variants.colors.push({
+                text: colorName,
+                selected: isSelected,
+                value: imageUrl || colorName // Use image URL as value if available
+              });
+              
+              Logger.debug(`Added Bershka color from dialog: ${colorName}, selected: ${isSelected}`);
+            }
+          }
+          
+          // If we found colors in the dialog, return now
+          if (result.variants.colors.length > 0) {
+            return;
+          }
+        }
+      }
+      
+      // STRATEGY 2: Try the initial compact color selector (which has the +X button)
+      const colorSelector = document.querySelector('.color-selector');
+      if (colorSelector) {
+        // First, get the visible color options
+        const visibleColors = colorSelector.querySelectorAll('.color-selector__color:not(.color-selector__color--more)');
+        Logger.debug(`Found ${visibleColors.length} visible color options`);
+        
+        // Process visible colors
+        for (const color of visibleColors) {
+          const isSelected = color.classList.contains('selected');
+          const img = color.querySelector('img');
+          
+          let colorName = '';
+          let imageUrl = '';
+          
+          if (img) {
+            colorName = img.getAttribute('alt');
+            imageUrl = FormatUtils.makeUrlAbsolute(img.getAttribute('src'));
+          }
+          
+          if (!colorName) continue;
+          
+          // Add to color variants if not already present
+          if (!result.variants.colors.some(c => c.text === colorName)) {
+            result.variants.colors.push({
+              text: colorName,
+              selected: isSelected,
+              value: imageUrl || colorName
+            });
+            
+            Logger.debug(`Added Bershka visible color: ${colorName}, selected: ${isSelected}`);
+          }
+        }
+        
+        // STRATEGY 3: Check for hidden colors with +X button and try to extract from URLs
+        const moreColorElement = colorSelector.querySelector('.color-selector__color--more');
+        if (moreColorElement && result.variants.colors.length > 0) {
+          const moreText = DOMUtils.getTextContent(moreColorElement);
+          const moreMatch = moreText.match(/\+(\d+)/);
+          
+          if (moreMatch) {
+            const additionalColorsCount = parseInt(moreMatch[1], 10);
+            Logger.debug(`Bershka has ${additionalColorsCount} more colors not visible`);
+            
+            // Get the base URL to extract colorIds from
+            const currentUrl = window.location.href;
+            const baseProductUrl = currentUrl.split('?')[0];
+            
+            // Get the current product SKU/reference to extract information
+            if (result.sku) {
+              // Bershka SKU format is often: "Pink·Ref.1708/560/050" where 050 is the color code
+              const skuParts = result.sku.split('Ref.');
+              if (skuParts.length > 1) {
+                const refCode = skuParts[1];
+                const refParts = refCode.split('/');
+                
+                if (refParts.length >= 3) {
+                  // The third part is often the color code
+                  const currentColorCode = refParts[2];
+                  
+                  // Attempt to infer other color codes by analyzing the page
+                  // Check for links that might point to other color variants
+                  const colorLinks = document.querySelectorAll('a[href*="colorId="]');
+                  for (const link of colorLinks) {
+                    const href = link.getAttribute('href');
+                    // Extract colorId parameter
+                    const colorIdMatch = href.match(/colorId=(\d+)/);
+                    if (colorIdMatch && colorIdMatch[1]) {
+                      const colorId = colorIdMatch[1];
+                      
+                      // Check if we already have this color
+                      const alreadyExists = result.variants.colors.some(c => 
+                        c.text.includes(colorId) || (c.value && c.value.includes(colorId)));
+                      
+                      if (!alreadyExists) {
+                        // Try to get color name from image
+                        const img = link.querySelector('img');
+                        let colorName = '';
+                        let imageUrl = '';
+                        
+                        if (img) {
+                          colorName = img.getAttribute('alt');
+                          imageUrl = FormatUtils.makeUrlAbsolute(img.getAttribute('src'));
+                        }
+                        
+                        // If no name from image, try to map from common color codes
+                        if (!colorName) {
+                          const colorIdMap = {
+                            '091': 'Gold',
+                            '050': 'Pink',
+                            '100': 'Brown',
+                            '712': 'Orange',
+                            '800': 'Silver',
+                            '040': 'Blue',
+                            '250': 'Green',
+                            '251': 'Dark Green',
+                            '500': 'Black',
+                            '251': 'White',
+                            '600': 'Yellow',
+                            // Add more color codes as needed
+                          };
+                          
+                          colorName = colorIdMap[colorId] || `Color ${colorId}`;
+                        }
+                        
+                        result.variants.colors.push({
+                          text: colorName,
+                          selected: false,
+                          value: imageUrl || colorName
+                        });
+                        
+                        Logger.debug(`Added Bershka hidden color from URL: ${colorName}`);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            
+            // STRATEGY 4: Try to find the hidden color directly from the DOM
+            // Check page for the third color (Gold in your example)
+            // Bershka sometimes has hidden elements with all color information
+            const allImagesWithAlt = document.querySelectorAll('img[alt]');
+            const knownColors = result.variants.colors.map(c => c.text.toLowerCase());
+            
+            for (const img of allImagesWithAlt) {
+              const altText = img.getAttribute('alt');
+              if (altText && !knownColors.includes(altText.toLowerCase())) {
+                // This might be a color we don't have yet
+                // Check if it's in a product context
+                const isInProductContext = 
+                  img.closest('.product-item') || 
+                  img.closest('.color-item') || 
+                  img.closest('[role="option"]');
+                
+                if (isInProductContext) {
+                  const imageUrl = FormatUtils.makeUrlAbsolute(img.getAttribute('src'));
+                  
+                  result.variants.colors.push({
+                    text: altText,
+                    selected: false,
+                    value: imageUrl || altText
+                  });
+                  
+                  Logger.debug(`Added Bershka hidden color from image alt: ${altText}`);
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // STRATEGY 5: If we still couldn't find all colors, try alternative selectors
+      if (result.variants.colors.length === 0 || 
+          (moreColorElement && result.variants.colors.length < 3)) {
+        // General color selectors that might work on Bershka
+        const alternativeSelectors = [
+          '[aria-labelledby="a11y-color-selector-pdp-title"] [role="option"]',
+          '.color-list [role="option"]',
+          '.color-options .color-option',
+          'a[href*="colorId="]'  // Links with colorId parameter
+        ];
+        
+        for (const selector of alternativeSelectors) {
+          const elements = document.querySelectorAll(selector);
+          
+          if (elements && elements.length > 0) {
+            Logger.debug(`Found ${elements.length} color options with alternative selector: ${selector}`);
+            
+            for (const element of elements) {
+              // Check if selected
+              const isSelected = 
+                element.classList.contains('selected') || 
+                element.getAttribute('aria-selected') === 'true';
+              
+              // Try to get color name
+              let colorName = element.getAttribute('aria-label');
+              
+              // If no aria-label, try img alt text
+              if (!colorName) {
+                const img = element.querySelector('img');
+                if (img) {
+                  colorName = img.getAttribute('alt');
+                }
+              }
+              
+              // Try colorId parameter from href
+              if (!colorName && element.hasAttribute('href')) {
+                const href = element.getAttribute('href');
+                const colorIdMatch = href.match(/colorId=(\d+)/);
+                if (colorIdMatch && colorIdMatch[1]) {
+                  const colorId = colorIdMatch[1];
+                  const colorIdMap = {
+                    '091': 'Gold',
+                    '050': 'Pink',
+                    '100': 'Brown',
+                    '712': 'Orange',
+                    '800': 'Silver',
+                    '040': 'Blue',
+                    '250': 'Green',
+                    '251': 'Dark Green',
+                    '500': 'Black',
+                    '251': 'White',
+                    '600': 'Yellow',
+                  };
+                  colorName = colorIdMap[colorId] || `Color ${colorId}`;
+                }
+              }
+              
+              if (!colorName) continue;
+              
+              // Get image if available
+              let imageUrl = null;
+              const img = element.querySelector('img');
+              if (img) {
+                imageUrl = FormatUtils.makeUrlAbsolute(img.getAttribute('src'));
+              }
+              
+              // Check if we already have this color
+              const alreadyExists = result.variants.colors.some(c => c.text === colorName);
+              
+              // Add to color variants if not already present
+              if (!alreadyExists) {
+                result.variants.colors.push({
+                  text: colorName,
+                  selected: isSelected,
+                  value: imageUrl || colorName
+                });
+                
+                Logger.debug(`Added Bershka color (alternative): ${colorName}`);
+              }
+            }
+            
+            if (result.variants.colors.length > 0) {
+              break;
+            }
+          }
+        }
+      }
+      
+      // STRATEGY 6: Look at the page source for color options (last resort)
+      if (result.variants.colors.length === 0) {
+        // Try to extract from JSON-LD data, which might contain all variants
+        const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+        for (const script of scripts) {
+          try {
+            const jsonData = JSON.parse(script.textContent);
+            
+            // JSON-LD product data might have color information
+            if (jsonData['@type'] === 'Product' && jsonData.color) {
+              // Handle different formats of color data
+              let colors = [];
+              if (Array.isArray(jsonData.color)) {
+                colors = jsonData.color;
+              } else if (typeof jsonData.color === 'string') {
+                colors = [jsonData.color];
+              }
+              
+              for (const color of colors) {
+                result.variants.colors.push({
+                  text: color,
+                  selected: false,
+                  value: color
+                });
+                
+                Logger.debug(`Added Bershka color from JSON-LD: ${color}`);
+              }
+            }
+          } catch (e) {
+            // Skip invalid JSON
+          }
+        }
+      }
+    } catch (e) {
+      Logger.warn("Error extracting Bershka colors", e);
+    }
+  },
+  
+  // Extract size variants for Bershka
+  extractBershkaSizes: function(result) {
+    try {
+      Logger.info("Extracting Bershka size variants");
+      
+      // Look for size selectors
+      const sizeSelectors = [
+        '.sizes-list li',
+        '.size-selector__size',
+        '[aria-labelledby="a11y-size-selector-pdp-title"] [role="option"]'
+      ];
+      
+      for (const selector of sizeSelectors) {
+        const sizeElements = document.querySelectorAll(selector);
+        
+        if (sizeElements && sizeElements.length > 0) {
+          Logger.debug(`Found ${sizeElements.length} size options with selector: ${selector}`);
+          
+          for (const element of sizeElements) {
+            // Check if selected
+            const isSelected = 
+              element.classList.contains('selected') || 
+              element.getAttribute('aria-selected') === 'true';
+            
+            // Check if out of stock
+            const isOutOfStock = 
+              element.classList.contains('unavailable') || 
+              element.classList.contains('disabled') ||
+              element.getAttribute('aria-disabled') === 'true';
+            
+            // Get size text
+            let sizeText = DOMUtils.getTextContent(element);
+            
+            // If the inner text is not useful, try aria-label
+            if (!sizeText || sizeText.trim() === '') {
+              sizeText = element.getAttribute('aria-label');
+            }
+            
+            if (!sizeText) continue;
+            
+            // Create a value object that includes stock status
+            const sizeValue = isOutOfStock 
+              ? JSON.stringify({ inStock: false }) 
+              : JSON.stringify({ inStock: true });
+            
+            // Add size to variants
+            result.variants.sizes.push({
+              text: sizeText,
+              selected: isSelected,
+              value: sizeValue
+            });
+            
+            Logger.debug(`Added Bershka size: ${sizeText}, selected: ${isSelected}, in stock: ${!isOutOfStock}`);
+          }
+          
+          // If we found sizes, stop searching
+          if (result.variants.sizes.length > 0) {
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      Logger.warn("Error extracting Bershka sizes", e);
+    }
+  }
+};
+
 // ==================== Main Product Extractor ====================
 
 // Main product extractor that orchestrates the extraction process
@@ -4263,6 +4868,14 @@ const ProductExtractor = {
         const mangoResult = MangoExtractor.extract();
         if (mangoResult && mangoResult.success) {
           return mangoResult;
+        }
+      }
+      
+      if (BershkaExtractor.isApplicable()) {
+        Logger.info("Detected Bershka site, using Bershka extractor");
+        const bershkaResult = BershkaExtractor.extract();
+        if (bershkaResult && bershkaResult.success) {
+          return bershkaResult;
         }
       }
 
