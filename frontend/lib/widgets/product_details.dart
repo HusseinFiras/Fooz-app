@@ -623,6 +623,36 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
   // Enhanced size variant display for Zara
   Widget _buildSizeVariants(List<VariantOption> sizeOptions) {
     debugPrint('[PD] Building UI for ${sizeOptions.length} size options');
+    
+    // Debug log the raw size data
+    debugPrint('[PD] Raw size options: ${sizeOptions.map((option) => '${option.text}(selected: ${option.selected}, value: ${option.value})').join(', ')}');
+
+    // For Bershka - log the brand for debugging
+    final isProductFromBershka = widget.productInfo.brand?.toLowerCase() == 'bershka' ||
+        widget.productInfo.url.toLowerCase().contains('bershka.com');
+    
+    if (isProductFromBershka) {
+      debugPrint('[PD] 🛍️ Processing Bershka product: ${widget.productInfo.title}');
+      // Log the variants structure for Bershka
+      if (widget.productInfo.variants != null) {
+        debugPrint('[PD] Variants keys: ${widget.productInfo.variants!.keys.join(', ')}');
+        
+        if (widget.productInfo.variants!.containsKey('sizes')) {
+          final sizes = widget.productInfo.variants!['sizes']!;
+          debugPrint('[PD] Size count: ${sizes.length}');
+          
+          // Log the first few sizes
+          for (int i = 0; i < min(sizes.length, 3); i++) {
+            final size = sizes[i];
+            debugPrint('[PD] Size ${i+1}: ${size.text}, selected: ${size.selected}, value: ${size.value}');
+          }
+        } else {
+          debugPrint('[PD] ⚠️ No "sizes" key in variants map for Bershka product');
+        }
+      } else {
+        debugPrint('[PD] ⚠️ No variants in ProductInfo for Bershka product');
+      }
+    }
 
     // Filter out nonsensical or placeholder options
     final filteredOptions = sizeOptions.where((option) {
@@ -638,9 +668,11 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       return true;
     }).toList();
 
+    debugPrint('[PD] Filtered to ${filteredOptions.length} valid size options');
+
     // If no valid options after filtering, don't show the section
     if (filteredOptions.isEmpty) {
-      debugPrint('[PD] No valid size options to display');
+      debugPrint('[PD] ⚠️ No valid size options to display');
       return const SizedBox.shrink();
     }
 
@@ -652,6 +684,10 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     // For Stradivarius products
     bool isStradivarius = widget.productInfo.brand?.toLowerCase() == 'stradivarius' ||
         widget.productInfo.url.toLowerCase().contains('stradivarius.com');
+        
+    // For Bershka products
+    bool isBershka = widget.productInfo.brand?.toLowerCase() == 'bershka' ||
+        widget.productInfo.url.toLowerCase().contains('bershka.com');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -683,18 +719,23 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
           runSpacing: 8,
           children: filteredOptions.map((option) {
             // Parse inStock information from value
-            bool isInStock =
-                true; // Default to true unless explicitly marked false
+            bool isInStock = true; // Default to true unless explicitly marked false
+            bool hasLimitedStock = false; // For Bershka "Only a few left" indicator
 
             if (option.value != null) {
               try {
                 // Check different formats of how stock info might be stored
                 if (option.value!.contains('"inStock"') ||
                     option.value!.contains("'inStock'")) {
-                  // For the JSON format from Zara extractor
+                  // For the JSON format from extractors
                   final valueMap =
                       jsonDecode(option.value!) as Map<String, dynamic>;
                   isInStock = valueMap['inStock'] ?? true;
+                  
+                  // Check for limited stock flag (Bershka)
+                  if (valueMap.containsKey('limitedStock')) {
+                    hasLimitedStock = valueMap['limitedStock'] ?? false;
+                  }
                 } else if (option.value!.contains('out of stock') ||
                     option.value!.contains('unavailable') ||
                     option.value!.contains('sold out')) {
@@ -703,6 +744,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                 }
               } catch (e) {
                 // If parse fails, assume it's in stock
+                debugPrint('[PD] Error parsing size value: $e');
               }
             }
 
@@ -794,12 +836,67 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                           ),
                         ),
                       ),
+                      
+                    // Show a limited stock indicator for Bershka sizes
+                    if (hasLimitedStock && isInStock)
+                      Positioned(
+                        right: -4,
+                        top: -4,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade400,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.priority_high,
+                            size: 8,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
             );
           }).toList(),
         ),
+        
+        // Add note for limited stock indicator (only show if Bershka and any sizes have limited stock)
+        if (isBershka && filteredOptions.any((option) {
+          try {
+            if (option.value != null && option.value!.contains('limitedStock')) {
+              final valueMap = jsonDecode(option.value!) as Map<String, dynamic>;
+              return valueMap['limitedStock'] == true;
+            }
+          } catch (e) {}
+          return false;
+        }))
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade400,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                SizedBox(width: 4),
+                Text(
+                  'Only a few left',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade700,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }

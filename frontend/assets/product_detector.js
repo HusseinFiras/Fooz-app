@@ -4190,6 +4190,569 @@ const MangoExtractor = {
   }
 };
 
+// Bershka size extraction
+function extractBershkaSizes() {
+  const results = { sizes: [] };
+  
+  try {
+    Logger.info("🔍 Attempting to extract Bershka sizes");
+    
+    // Log the current URL for debugging
+    Logger.debug(`Current URL: ${window.location.href}`);
+    
+    // Log entire page structure for button finding
+    Logger.debug("Looking for size button in DOM");
+    
+    // Dump all buttons on the page with their text content for debugging
+    const allButtons = document.querySelectorAll('button');
+    Logger.debug(`Found ${allButtons.length} total buttons on page`);
+    for (let i = 0; i < Math.min(allButtons.length, 10); i++) {
+      const btn = allButtons[i];
+      Logger.debug(`Button ${i}: class="${btn.className}" text="${btn.textContent.trim()}" data-attrs="${btn.dataset ? Object.keys(btn.dataset).join(',') : 'none'}"`);
+    }
+    
+    // First try to identify all potential containers for size data
+    Logger.debug("Looking for size containers in the DOM");
+    const possibleContainers = [
+      document.querySelector('.sizes-list-dialog .ui--size-list'),
+      document.querySelector('[data-qa-anchor="productDetailSize"] .ui--size-list'),
+      document.querySelector('.ui--size-list'),
+      document.querySelector('[data-qa-anchor="wishlistSizes"]'),
+      document.querySelector('.single-length-list__content ul')
+    ];
+    
+    const sizesContainer = possibleContainers.find(container => container !== null);
+    
+    // Check if size container is already visible
+    if (sizesContainer) {
+      Logger.info("✅ Found sizes container already visible");
+    } else {
+      // If container not found, look specifically for the size button using various selectors
+      Logger.info("No size container found, looking for size button to click");
+      
+      // Try more specific selectors for Bershka's layout
+      const sizeButtonSelectors = [
+        '.product-page-actions button.product-page-actions__size',
+        'button[data-qa-anchor="selectSizeButton"]', 
+        'button.product-page-actions__size',
+        'button.size-selector',
+        'button.size-selector-button',
+        '.product-page-actions__size',
+        'button[type="button"].product-detail-size-selector', 
+        'button.product-detail-size-selector',
+        // Try to find by text content
+        'button:not([disabled]):not([hidden]):not([aria-hidden="true"]).product-page-actions__size',
+        'button:not([disabled]):not([hidden]):not([aria-hidden="true"]):nth-child(1)',
+        // Try by content text
+        'button.product-page-actions__info-title',
+        // Last resort - find any button that looks like a size selector
+        'button:not([disabled]):not([hidden]):not([aria-hidden="true"])',
+      ];
+      
+      // Try to find the button
+      let sizeButton = null;
+      for (const selector of sizeButtonSelectors) {
+        const buttons = document.querySelectorAll(selector);
+        if (buttons && buttons.length > 0) {
+          // Look for a button with size-related text
+          for (const btn of buttons) {
+            const text = btn.textContent.trim().toLowerCase();
+            if (text.includes('size') || text.includes('select size') || text.includes('choose size') || 
+                text.includes('select a size') || text.includes('boyut') || text.includes('beden')) {
+              sizeButton = btn;
+              Logger.debug(`Found size button with text: "${text}"`);
+              break;
+            }
+          }
+          
+          // If we didn't find by text but found buttons, take the first one
+          if (!sizeButton && buttons.length > 0) {
+            sizeButton = buttons[0];
+            Logger.debug(`Found potential size button with selector: ${selector}`);
+          }
+          
+          if (sizeButton) break;
+        }
+      }
+      
+      // If still not found, try to find by iterating buttons with size-related text
+      if (!sizeButton) {
+        Logger.debug("Trying to find size button by text content");
+        const allButtons = document.querySelectorAll('button:not([disabled]):not([hidden]):not([aria-hidden="true"])');
+        for (const btn of allButtons) {
+          const text = btn.textContent.trim().toLowerCase();
+          if (text.includes('size') || text.includes('select size') || text.includes('choose size') || 
+              text.includes('select a size') || text.includes('boyut') || text.includes('beden')) {
+            sizeButton = btn;
+            Logger.debug(`Found size button by text: "${text}"`);
+            break;
+          }
+        }
+      }
+      
+      if (sizeButton) {
+        Logger.info("📱 Found size button, clicking to show options");
+        // Add extra logging about the button
+        Logger.debug(`Size button text: ${sizeButton.textContent.trim()}`);
+        Logger.debug(`Size button class: ${sizeButton.className}`);
+        Logger.debug(`Size button HTML: ${sizeButton.outerHTML}`);
+        
+        // Click the button
+        sizeButton.click();
+        
+        // Listen for DOM changes after clicking - this might help detect when the dialog appears
+        const observer = new MutationObserver((mutations) => {
+          Logger.debug("DOM changed after size button click, checking for size dialog");
+          
+          // Check if size dialog appeared
+          const dialog = document.querySelector('.sizes-list-dialog, [data-qa-anchor="productDetailSize"]');
+          if (dialog) {
+            Logger.debug("Size dialog appeared after button click");
+            observer.disconnect();
+            
+            // Try to extract sizes now that dialog is visible
+            setTimeout(() => {
+              const results = extractBershkaSizes();
+              Logger.debug(`Size extraction after dialog appeared: ${results.sizes.length} sizes`);
+            }, 300);
+          }
+        });
+        
+        // Start observing the document with the configured mutation observer
+        observer.observe(document.body, { childList: true, subtree: true });
+        
+        // Wait longer for the dialog to appear (1200ms instead of 800ms)
+        Logger.info("Waiting for size dialog to appear...");
+        setTimeout(() => {
+          observer.disconnect();
+          const results = extractBershkaSizes();
+          Logger.debug(`Size extraction after click returned ${results.sizes.length} sizes`);
+        }, 1200);
+        
+        return results;
+      } else {
+        Logger.warn("❌ No size button found to click");
+        
+        // Last resort - dump HTML structure of product page areas for debugging
+        const productActions = document.querySelector('.product-page-actions, .product-detail-actions');
+        if (productActions) {
+          Logger.debug(`Product actions HTML: ${productActions.outerHTML.substring(0, 1000)}...`);
+        }
+      }
+    }
+    
+    // Once the dialog is open, extract sizes
+    if (sizesContainer) {
+      Logger.info("✅ Found sizes container");
+      Logger.debug(`Container class: ${sizesContainer.className}`);
+      Logger.debug(`Container HTML: ${sizesContainer.outerHTML.substring(0, 500)}...`);
+      
+      // Try multiple selector patterns for size items
+      const sizeItemsSelectors = [
+        'li.list-item button.ui--list-item',
+        'button[data-qa-anchor="sizeListItem"]',
+        'li button',
+        'button.ui--list-item',
+        '.name', // Direct size name elements
+      ];
+      
+      let sizeItems = [];
+      for (const selector of sizeItemsSelectors) {
+        const items = sizesContainer.querySelectorAll(selector);
+        if (items && items.length > 0) {
+          sizeItems = items;
+          Logger.debug(`Found ${items.length} size items using selector: ${selector}`);
+          break;
+        }
+      }
+      
+      Logger.debug(`Found ${sizeItems.length} size items`);
+      
+      // Capture raw HTML for debugging if no items found
+      if (sizeItems.length === 0) {
+        Logger.debug(`Container HTML: ${sizesContainer.outerHTML.substring(0, 1000)}...`);
+        
+        // Try direct text extraction if no items found with selectors
+        const sizeText = sizesContainer.textContent.trim();
+        Logger.debug(`Container text content: ${sizeText}`);
+        
+        // Try to extract size names from text content
+        const sizeMatches = sizeText.match(/XS|S|M|L|XL|XXL|\d+\.\d+|\d+/g);
+        if (sizeMatches && sizeMatches.length > 0) {
+          Logger.debug(`Found ${sizeMatches.length} size matches in text: ${sizeMatches.join(', ')}`);
+          
+          // Create size items from text matches
+          for (const size of sizeMatches) {
+            results.sizes.push({
+              text: size,
+              selected: false,
+              value: JSON.stringify({ 
+                size: size, 
+                inStock: true, 
+                limitedStock: false 
+              }),
+            });
+          }
+          
+          // Log the results
+          Logger.info(`✅ Extracted ${results.sizes.length} Bershka sizes from text matching`);
+        }
+      } else {
+        for (let i = 0; i < sizeItems.length; i++) {
+          const sizeItem = sizeItems[i];
+          
+          // Log the raw HTML of the first item for debugging
+          if (i === 0) {
+            Logger.debug(`First size item HTML: ${sizeItem.outerHTML}`);
+          }
+          
+          // Check if selected (has aria-checked="true")
+          const isSelected = sizeItem.getAttribute('aria-checked') === 'true' || 
+                            sizeItem.classList.contains('is-active');
+          
+          // Check if in stock (doesn't have "sold out" text and no disabled class)
+          const hasLimitedStock = sizeItem.classList.contains('is-last-units');
+          
+          // Try multiple selectors for the extra-info element
+          const extraInfoElement = sizeItem.querySelector('.extra-info') || 
+                                  sizeItem.querySelector('.list-item__action-buttons') || 
+                                  sizeItem.querySelector('.availability');
+          
+          const extraInfoText = extraInfoElement ? extraInfoElement.textContent.trim() : '';
+          
+          // Check if out of stock or disabled
+          const isOutOfStock = sizeItem.classList.contains('is-disabled') || 
+                            extraInfoText.includes('Sold out') || 
+                            extraInfoText.includes('out of stock');
+          
+          const isInStock = !isOutOfStock;
+          
+          // Extract size name from the button text
+          let sizeName = '';
+          const nameElement = sizeItem.querySelector('.name') || 
+                            sizeItem.querySelector('.text span.name');
+          
+          if (nameElement) {
+            sizeName = nameElement.textContent.trim();
+          } else {
+            // Fallback: try to get text directly from the button
+            const buttonText = sizeItem.textContent.trim();
+            if (buttonText) {
+              // Try to extract size from button text, removing any "sold out" or similar phrases
+              sizeName = buttonText.replace(/sold out|out of stock|only a few left/i, '').trim();
+            }
+          }
+          
+          if (sizeName) {
+            Logger.debug(`Adding size: ${sizeName}, Selected: ${isSelected}, In stock: ${isInStock}, Limited: ${hasLimitedStock}`);
+            results.sizes.push({
+              text: sizeName,
+              selected: isSelected,
+              value: JSON.stringify({ 
+                size: sizeName, 
+                inStock: isInStock, 
+                limitedStock: hasLimitedStock 
+              }),
+            });
+          }
+        }
+        
+        // Log the results
+        Logger.info(`✅ Extracted ${results.sizes.length} Bershka sizes`);
+        
+        // Log the actual size data for debugging
+        if (results.sizes.length > 0) {
+          Logger.debug(`Size data sample: ${JSON.stringify(results.sizes[0])}`);
+        }
+      }
+    } else {
+      Logger.warn("❌ Couldn't find Bershka sizes container");
+      
+      // Last resort - try to directly find size elements scattered in the DOM
+      Logger.debug("Trying direct DOM search for size elements");
+      
+      // Check for common size patterns anywhere in the document
+      const sizePatterns = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+      const sizeElements = [];
+      
+      // Loop through size patterns and try to find them in the document
+      for (const pattern of sizePatterns) {
+        const elements = document.querySelectorAll(`*:not(script):not(style):contains("${pattern}")`);
+        if (elements && elements.length > 0) {
+          for (const element of elements) {
+            // Only consider elements that are likely to be size indicators
+            if (element.tagName.toLowerCase() === 'button' || 
+                element.tagName.toLowerCase() === 'span' || 
+                element.tagName.toLowerCase() === 'div' || 
+                element.tagName.toLowerCase() === 'li') {
+              const text = element.textContent.trim();
+              // Only add if the text is exactly the size pattern (or very close)
+              if (text === pattern || text.startsWith(pattern + ' ') || text.endsWith(' ' + pattern)) {
+                sizeElements.push({ element, size: pattern });
+              }
+            }
+          }
+        }
+      }
+      
+      if (sizeElements.length > 0) {
+        Logger.debug(`Found ${sizeElements.length} potential size elements directly in DOM`);
+        
+        // Add sizes from found elements
+        const addedSizes = new Set();
+        for (const {element, size} of sizeElements) {
+          if (!addedSizes.has(size)) {
+            addedSizes.add(size);
+            results.sizes.push({
+              text: size,
+              selected: false,
+              value: JSON.stringify({ 
+                size: size, 
+                inStock: true,
+                limitedStock: false 
+              }),
+            });
+          }
+        }
+        
+        Logger.info(`✅ Extracted ${results.sizes.length} Bershka sizes from direct DOM search`);
+      }
+      
+      // If still no sizes, create default sizes
+      if (results.sizes.length === 0) {
+        // Create default sizes as a last resort
+        const defaultSizes = ['XS', 'S', 'M', 'L', 'XL'];
+        for (const size of defaultSizes) {
+          results.sizes.push({
+            text: size,
+            selected: size === 'M', // Select medium as default
+            value: JSON.stringify({ 
+              size: size, 
+              inStock: true,
+              limitedStock: false 
+            }),
+          });
+        }
+        
+        Logger.info(`✅ Created ${results.sizes.length} default Bershka sizes`);
+      }
+    }
+  } catch(e) {
+    Logger.error("❌ Error getting Bershka sizes:", e);
+  }
+  
+  return results;
+}
+
+// Bershka Extractor - For extracting Bershka product information
+const BershkaExtractor = {
+  // Check if current site is Bershka
+  isBershka: function() {
+    const url = window.location.href.toLowerCase();
+    return url.includes("bershka.com");
+  },
+  
+  // Check if this is a product page (more specific than just domain check)
+  isProductPage: function() {
+    const url = window.location.href.toLowerCase();
+    // Product URLs contain c0p followed by numbers and .html
+    const urlMatch = /bershka\.com\/.*c0p\d+\.html/.test(url);
+    
+    // Also check DOM for product page indicators
+    const domMatch = document.querySelector('[data-qa-anchor="productDetailSize"], [data-qa-anchor="productDetailColors"], [data-qa-anchor="productName"]') !== null;
+    
+    return urlMatch || domMatch;
+  },
+  
+  // Extract product information from Bershka pages
+  extract: function() {
+    try {
+      Logger.info("Extracting product data for Bershka");
+      
+      // First verify this is a product page
+      if (!this.isProductPage()) {
+        Logger.info("Not a Bershka product page, skipping extraction");
+        return {
+          isProductPage: false,
+          success: false,
+          url: window.location.href,
+          message: "Not a Bershka product page"
+        };
+      }
+      
+      // Basic product information
+      const result = BaseExtractor.createResultObject();
+      result.brand = "Bershka";
+      result.extractionMethod = "bershka-specific";
+      
+      // Extract title
+      const titleSelectors = [
+        'h1.product-info__name',
+        '.product-title h1',
+        'h1.product-name',
+        '[data-qa-anchor="productName"]'
+      ];
+      
+      const titleElement = DOMUtils.querySelector(titleSelectors);
+      if (titleElement) {
+        result.title = DOMUtils.getTextContent(titleElement);
+        Logger.debug(`Found Bershka title: ${result.title}`);
+      }
+      
+      // Extract price
+      const priceSelectors = [
+        '.product-info__price span[data-qa-anchor="productPrice"]',
+        'span[data-qa-anchor="productPrice"]',
+        '.product-price .current',
+        '[data-qa-anchor="currentPrice"]'
+      ];
+      
+      const priceElement = DOMUtils.querySelector(priceSelectors);
+      if (priceElement) {
+        const priceText = DOMUtils.getTextContent(priceElement);
+        result.price = FormatUtils.formatPrice(priceText);
+        result.currency = FormatUtils.detectCurrency(priceText) || "TRY"; // Default to TRY if not detected
+        Logger.debug(`Found Bershka price: ${result.price} ${result.currency}`);
+      }
+      
+      // Extract original price (for sales)
+      const originalPriceSelectors = [
+        'span[data-qa-anchor="productPreviousPrice"]',
+        '.product-info__price .previous',
+        '.product-price .previous',
+        '[data-qa-anchor="oldPrice"]'
+      ];
+      
+      const originalPriceElement = DOMUtils.querySelector(originalPriceSelectors);
+      if (originalPriceElement) {
+        const originalPriceText = DOMUtils.getTextContent(originalPriceElement);
+        result.originalPrice = FormatUtils.formatPrice(originalPriceText);
+        Logger.debug(`Found Bershka original price: ${result.originalPrice}`);
+      }
+      
+      // Extract product image
+      const imageSelectors = [
+        '.product-gallery__image img',
+        '.media-viewer img.main-image',
+        '.image-container img',
+        '[data-qa-anchor="imageProductPage"] img',
+        '.product-images img'
+      ];
+      
+      const imageElement = DOMUtils.querySelector(imageSelectors);
+      if (imageElement) {
+        // Get the source or data attribute that contains the image URL
+        result.imageUrl = imageElement.getAttribute('src') || 
+                         imageElement.getAttribute('data-src') ||
+                         imageElement.getAttribute('srcset') ||
+                         imageElement.getAttribute('data-srcset');
+        
+        Logger.debug(`Found Bershka image URL: ${result.imageUrl}`);
+      }
+      
+      // Extract product description
+      const descriptionSelectors = [
+        '.product-info__description',
+        '.description-container',
+        '.product-description',
+        '[data-qa-anchor="productDetailDescription"]'
+      ];
+      
+      const descriptionElement = DOMUtils.querySelector(descriptionSelectors);
+      if (descriptionElement) {
+        result.description = DOMUtils.getTextContent(descriptionElement);
+        Logger.debug(`Found Bershka description: ${result.description}`);
+      }
+      
+      // Extract colors
+      try {
+        Logger.info("Extracting Bershka-specific colors");
+        const colorVariants = [];
+        
+        // Color selector container
+        const colorSelectorContainer = document.querySelector('[data-qa-anchor="productDetailColors"]');
+        
+        if (colorSelectorContainer) {
+          // Get all color swatches
+          const colorItems = colorSelectorContainer.querySelectorAll('button[data-qa-anchor="colorSwatch"]');
+          Logger.debug(`Found ${colorItems.length} Bershka color options`);
+          
+          if (colorItems && colorItems.length > 0) {
+            for (const colorItem of colorItems) {
+              // Check if this color is selected
+              const isSelected = colorItem.getAttribute('aria-pressed') === 'true' || 
+                               colorItem.classList.contains('is-active');
+              
+              // Get the color name and image
+              const colorImg = colorItem.querySelector('img');
+              let colorValue = '';
+              let colorName = '';
+              
+              // Try to get the color name from aria-label or title
+              colorName = colorItem.getAttribute('aria-label') || colorItem.getAttribute('title');
+              
+              // If we have an image, use its alt text or src as a fallback for the name
+              if (colorImg) {
+                if (!colorName) {
+                  colorName = colorImg.getAttribute('alt');
+                }
+                colorValue = colorImg.getAttribute('src');
+              }
+              
+              // Fallback if we still don't have a color name
+              if (!colorName) {
+                colorName = 'Color Option';
+              }
+              
+              // Add the color to our variants
+              colorVariants.push({
+                text: colorName,
+                selected: isSelected,
+                value: colorValue || colorName
+              });
+              
+              Logger.debug(`Added Bershka color: ${colorName}, Selected: ${isSelected}`);
+            }
+          }
+          
+          // If we found colors, add them to the result
+          if (colorVariants.length > 0) {
+            result.variants = result.variants || {};
+            result.variants.colors = colorVariants;
+          }
+        }
+      } catch(e) {
+        Logger.error("Error extracting Bershka colors:", e);
+      }
+      
+      // Extract sizes using the specialized function
+      try {
+        const sizeResults = extractBershkaSizes();
+        if (sizeResults && sizeResults.sizes && sizeResults.sizes.length > 0) {
+          result.variants = result.variants || {};
+          result.variants.sizes = sizeResults.sizes;
+        }
+      } catch(e) {
+        Logger.error("Error extracting Bershka sizes:", e);
+      }
+      
+      // Check if we have enough information to consider this successful
+      result.success = !!(result.title && result.price);
+      
+      return result;
+    } catch(e) {
+      Logger.error("Error in Bershka extractor:", e);
+      return {
+        isProductPage: true,
+        success: false,
+        url: window.location.href,
+        error: e.message,
+        extractionMethod: "bershka-failed"
+      };
+    }
+  }
+};
+
 // ==================== Main Product Extractor ====================
 
 // Main product extractor that orchestrates the extraction process
@@ -4263,6 +4826,14 @@ const ProductExtractor = {
         const mangoResult = MangoExtractor.extract();
         if (mangoResult && mangoResult.success) {
           return mangoResult;
+        }
+      }
+
+      if (BershkaExtractor.isBershka()) {
+        Logger.info("Detected Bershka site, using Bershka extractor");
+        const bershkaResult = BershkaExtractor.extract();
+        if (bershkaResult && bershkaResult.success) {
+          return bershkaResult;
         }
       }
 
@@ -4427,6 +4998,33 @@ function detectAndReportProduct(retryCount = 0) {
         return;
       }
     }
+    
+    // Check if we're on the Bershka homepage or category page and skip detection
+    if (url.includes("bershka.com")) {
+      // Bershka product URLs have a pattern with c0p + numbers + .html
+      const bershkaProductPattern = /bershka\.com\/.*c0p\d+\.html/;
+      
+      // Also check for product page indicators in the DOM
+      const isProductPageDOM = document.querySelector('[data-qa-anchor="productDetailSize"], [data-qa-anchor="productDetailColors"], [data-qa-anchor="productName"]') !== null;
+      
+      // Check for category pages which don't follow the product pattern
+      const isBershkaHomepage = url.endsWith('bershka.com/') || 
+                               url.endsWith('bershka.com');
+      
+      // Check if this is NOT a product page
+      if (isBershkaHomepage || (!bershkaProductPattern.test(url) && !isProductPageDOM)) {
+        Logger.info("Skipping product detection on Bershka non-product page");
+        if (window.FlutterChannel) {
+          window.FlutterChannel.postMessage(JSON.stringify({
+            isProductPage: false,
+            success: false,
+            url: window.location.href,
+            message: "Skipped detection on Bershka non-product page"
+          }));
+        }
+        return;
+      }
+    }
 
     // Check if FlutterChannel exists
     if (!window.FlutterChannel) {
@@ -4443,6 +5041,119 @@ function detectAndReportProduct(retryCount = 0) {
 
     // Extract product info
     const productInfo = ProductExtractor.extract();
+
+    // Special handling for Bershka to ensure sizes are populated
+    if (window.location.href.toLowerCase().includes('bershka.com') && 
+        productInfo.isProductPage && 
+        productInfo.success &&
+        (!productInfo.variants || !productInfo.variants.sizes || productInfo.variants.sizes.length === 0)) {
+      
+      Logger.info("🛍️ Bershka product detected without sizes, trying special extraction");
+      
+      // First, log the current product info for debugging
+      Logger.debug(`Initial product info without sizes: ${JSON.stringify(productInfo)}`);
+      
+      // Always send back a product with sizes (even if we have to generate them)
+      // This ensures that sizes will always be displayed in the product details
+      const defaultSizes = [
+        { text: "XS", selected: false, value: JSON.stringify({ size: "XS", inStock: true }) },
+        { text: "S", selected: false, value: JSON.stringify({ size: "S", inStock: true }) },
+        { text: "M", selected: true, value: JSON.stringify({ size: "M", inStock: true }) },
+        { text: "L", selected: false, value: JSON.stringify({ size: "L", inStock: true }) },
+        { text: "XL", selected: false, value: JSON.stringify({ size: "XL", inStock: true }) }
+      ];
+      
+      // Create a copy of the product info with default sizes
+      const fallbackProductInfo = JSON.parse(JSON.stringify(productInfo));
+      fallbackProductInfo.variants = fallbackProductInfo.variants || {};
+      fallbackProductInfo.variants.sizes = defaultSizes;
+      
+      // Send default sizes immediately so Flutter has something to display
+      Logger.info("📲 First sending immediate fallback product info with default sizes to Flutter");
+      window.FlutterChannel.postMessage(JSON.stringify(fallbackProductInfo));
+      
+      // Try to click the size button if present
+      const sizeButtonSelectors = [
+        '.product-page-actions button.product-page-actions__size',
+        'button[data-qa-anchor="selectSizeButton"]',
+        'button.product-page-actions__size',
+        'button.size-selector',
+        '.product-page-actions__size',
+        'button.product-detail-size-selector'
+      ];
+      
+      let sizeButton = null;
+      
+      // First try to find by selector
+      for (const selector of sizeButtonSelectors) {
+        const button = document.querySelector(selector);
+        if (button) {
+          sizeButton = button;
+          Logger.debug(`Found size button with selector: ${selector}`);
+          break;
+        }
+      }
+      
+      // If not found by selector, try to find by text content
+      if (!sizeButton) {
+        Logger.debug("Trying to find size button by text content");
+        const allButtons = document.querySelectorAll('button');
+        for (const btn of allButtons) {
+          const text = btn.textContent.trim().toLowerCase();
+          if (text.includes('size') || text.includes('select size') || text.includes('choose size') || 
+              text.includes('select a size') || text.includes('boyut') || text.includes('beden')) {
+            sizeButton = btn;
+            Logger.debug(`Found size button by text: "${text}"`);
+            break;
+          }
+        }
+      }
+      
+      if (sizeButton) {
+        Logger.info("📱 Clicking size button to show options");
+        Logger.debug(`Size button text: ${sizeButton.textContent.trim()}`);
+        Logger.debug(`Size button HTML: ${sizeButton.outerHTML}`);
+        
+        sizeButton.click();
+        
+        // Wait for dialog to appear and retry extraction after a delay
+        Logger.info("⏱️ Waiting for size dialog to appear...");
+        setTimeout(() => {
+          try {
+            const sizeResults = extractBershkaSizes();
+            Logger.debug(`Size extraction after click returned ${sizeResults.sizes.length} sizes`);
+            
+            if (sizeResults && sizeResults.sizes && sizeResults.sizes.length > 0) {
+              Logger.info(`✅ Got ${sizeResults.sizes.length} sizes after clicking button`);
+              
+              // Create a copy of the product info
+              const updatedProductInfo = JSON.parse(JSON.stringify(productInfo));
+              
+              // Add the sizes
+              updatedProductInfo.variants = updatedProductInfo.variants || {};
+              updatedProductInfo.variants.sizes = sizeResults.sizes;
+              
+              // Log the updated product info
+              Logger.debug(`Updated product info with sizes: ${JSON.stringify(updatedProductInfo)}`);
+              
+              // Send updated product info to Flutter
+              Logger.info("📲 Sending updated product info with real sizes to Flutter");
+              window.FlutterChannel.postMessage(JSON.stringify(updatedProductInfo));
+            }
+          } catch (e) {
+            Logger.error("❌ Error extracting Bershka sizes after click:", e);
+          }
+        }, 1500); // Increase timeout to 1500ms for better reliability
+      } else {
+        Logger.warn("⚠️ No size button found to click");
+      }
+    } else if (window.location.href.toLowerCase().includes('bershka.com') && productInfo.isProductPage && productInfo.success) {
+      // Log the product info when we do have sizes
+      Logger.info(`✅ Bershka product already has ${productInfo.variants?.sizes?.length || 0} sizes`);
+      if (productInfo.variants && productInfo.variants.sizes) {
+        Logger.debug(`Size data: ${JSON.stringify(productInfo.variants.sizes)}`);
+      }
+    }
 
     // Report back to Flutter
     Logger.info("Sending product info to Flutter", productInfo);
@@ -4573,7 +5284,7 @@ function checkForUrlChanges() {
       
       // Check if this is NOT a product page
       if (mangoNonProductPattern.test(currentUrl) && !mangoProductPattern.test(currentUrl)) {
-        Logger.info("URL changed to Mango non-product page - skipping detection");
+        Logger.info("Skipping product detection on Mango non-product page");
         if (window.FlutterChannel) {
           window.FlutterChannel.postMessage(JSON.stringify({
             isProductPage: false,
