@@ -620,13 +620,21 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     );
   }
 
-  // Enhanced size variant display for Zara
+  // Enhanced size variant display
   Widget _buildSizeVariants(List<VariantOption> sizeOptions) {
     debugPrint('[PD] Building UI for ${sizeOptions.length} size options');
     
     // Debug log the raw size data
     debugPrint('[PD] Raw size options: ${sizeOptions.map((option) => '${option.text}(selected: ${option.selected}, value: ${option.value})').join(', ')}');
 
+    // Check if product is from Mango
+    final isProductFromMango = widget.productInfo.brand?.toLowerCase() == 'mango' ||
+        widget.productInfo.url.toLowerCase().contains('mango.com');
+    
+    if (isProductFromMango) {
+      debugPrint('[PD] 🛍️ Processing Mango product: ${widget.productInfo.title}');
+    }
+    
     // For Bershka - log the brand for debugging
     final isProductFromBershka = widget.productInfo.brand?.toLowerCase() == 'bershka' ||
         widget.productInfo.url.toLowerCase().contains('bershka.com');
@@ -676,6 +684,41 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       return const SizedBox.shrink();
     }
 
+    // For Mango products: deduplicate sizes since we might get duplicate entries
+    List<VariantOption> displayOptions = filteredOptions;
+    
+    if (isProductFromMango) {
+      // Use a map to deduplicate by size text and get the most informative variant for each size
+      final Map<String, VariantOption> deduplicatedSizes = {};
+      
+      for (final option in filteredOptions) {
+        final sizeText = option.text.trim();
+        
+        if (!deduplicatedSizes.containsKey(sizeText)) {
+          // First time seeing this size, add it
+          deduplicatedSizes[sizeText] = option;
+        } else {
+          // We already have this size, decide which variant to keep
+          final existingOption = deduplicatedSizes[sizeText]!;
+          
+          // If the existing option doesn't have a value but the new one does, prefer the new one
+          if ((existingOption.value == null || existingOption.value!.isEmpty) && 
+              option.value != null && option.value!.isNotEmpty) {
+            deduplicatedSizes[sizeText] = option;
+          }
+          
+          // If one is selected and the other isn't, keep the selected one
+          if (!existingOption.selected && option.selected) {
+            deduplicatedSizes[sizeText] = option;
+          }
+        }
+      }
+      
+      // Convert back to list
+      displayOptions = deduplicatedSizes.values.toList();
+      debugPrint('[PD] Deduplicated Mango sizes from ${filteredOptions.length} to ${displayOptions.length}');
+    }
+
     // For Zara products, ensure we have all common sizes displayed
     // This is a fallback in case the JS code doesn't send all available sizes
     bool isZara = widget.productInfo.brand?.toLowerCase() == 'zara' ||
@@ -717,10 +760,12 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: filteredOptions.map((option) {
+          children: displayOptions.map((option) {
             // Parse inStock information from value
             bool isInStock = true; // Default to true unless explicitly marked false
             bool hasLimitedStock = false; // For Bershka "Only a few left" indicator
+            bool hasDelayedDelivery = false; // For Mango "Delayed delivery" info
+            String? deliveryInfo; // To store delivery information for Mango products
 
             if (option.value != null) {
               try {
@@ -730,17 +775,31 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   // For the JSON format from extractors
                   final valueMap =
                       jsonDecode(option.value!) as Map<String, dynamic>;
+                  
+                  // Get the inStock value directly from the JSON
                   isInStock = valueMap['inStock'] ?? true;
                   
                   // Check for limited stock flag (Bershka)
                   if (valueMap.containsKey('limitedStock')) {
                     hasLimitedStock = valueMap['limitedStock'] ?? false;
                   }
+                  
+                  // Check for delayed delivery info (Mango)
+                  if (valueMap.containsKey('delayedDelivery')) {
+                    hasDelayedDelivery = valueMap['delayedDelivery'] ?? false;
+                    deliveryInfo = valueMap['deliveryInfo']?.toString();
+                  }
                 } else if (option.value!.contains('out of stock') ||
                     option.value!.contains('unavailable') ||
                     option.value!.contains('sold out')) {
                   // Text-based indicators
                   isInStock = false;
+                } else if (isProductFromMango && option.value!.contains('delivery')) {
+                  // For Mango-specific delayed delivery information
+                  hasDelayedDelivery = true;
+                  deliveryInfo = option.value;
+                  // For Mango, items with delayed delivery are still in stock
+                  isInStock = true;
                 }
               } catch (e) {
                 // If parse fails, assume it's in stock
@@ -801,20 +860,27 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                 ),
                 child: Stack(
                   children: [
-                    Text(
-                      option.text,
-                      style: TextStyle(
-                        fontWeight: isSelected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                        color: !isInStock
-                            ? Colors.grey.shade400
-                            : isSelected
-                                ? Colors.black
-                                : Colors.black87,
-                        decoration:
-                            !isInStock ? TextDecoration.lineThrough : null,
-                      ),
+                    // Size text with proper styling
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          option.text,
+                          style: TextStyle(
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            color: !isInStock
+                                ? Colors.grey.shade400
+                                : isSelected
+                                    ? Colors.black
+                                    : Colors.black87,
+                            decoration:
+                                !isInStock ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                      ],
                     ),
 
                     // Show a small indicator for out of stock sizes
@@ -856,6 +922,26 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                           ),
                         ),
                       ),
+                      
+                    // Show a delayed delivery indicator for Mango
+                    if (isProductFromMango && hasDelayedDelivery && isInStock)
+                      Positioned(
+                        right: -4,
+                        top: -4,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade600,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.schedule,
+                            size: 8,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -864,7 +950,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         ),
         
         // Add note for limited stock indicator (only show if Bershka and any sizes have limited stock)
-        if (isBershka && filteredOptions.any((option) {
+        if (isBershka && displayOptions.any((option) {
           try {
             if (option.value != null && option.value!.contains('limitedStock')) {
               final valueMap = jsonDecode(option.value!) as Map<String, dynamic>;
@@ -888,6 +974,38 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                 SizedBox(width: 4),
                 Text(
                   'Only a few left',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade700,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+        // Add note for delayed delivery (only show if Mango and any sizes have delayed delivery)
+        if (isProductFromMango && displayOptions.any((option) {
+          return option.value != null && (
+            option.value!.contains('delayedDelivery') || 
+            option.value!.contains('delivery')
+          );
+        }))
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade600,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                SizedBox(width: 4),
+                Text(
+                  'Extended delivery time',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade700,

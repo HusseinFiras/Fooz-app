@@ -2812,7 +2812,7 @@ const StradivariusExtractor = {
               // Create value object with stock info
               const valueObj = {
                 size: sizeText,
-                inStock: !isDisabled
+                inStock: isEnabled,
               };
               
               // Add to size variants
@@ -2821,7 +2821,7 @@ const StradivariusExtractor = {
                 selected: isSelected,
                 value: JSON.stringify(valueObj)
               });
-              Logger.debug(`Added size variant: ${sizeText} (in stock: ${!isDisabled})`);
+              Logger.debug(`Added size variant: ${sizeText} (in stock: ${isEnabled})`);
             }
           });
           
@@ -3958,7 +3958,8 @@ const MangoExtractor = {
             "button:contains('Ekle')", // Literal text match
             ".add-to-cart", 
             "[data-testid='add-to-cart']",
-            "button.add-button"
+            "button.add-button",
+            ".PrimaryActions_addToBag__59Qzv" // Added for Mango's specific button class
           ];
           
           // Find the button
@@ -4009,7 +4010,8 @@ const MangoExtractor = {
                   const modalSizeSelectors = [
                     ".modal .SizesList_sizesList__SFVLW",
                     ".size-selector-modal .sizes",
-                    ".size-modal"
+                    ".size-modal",
+                    ".SheetContent_content__sJjkI" // Added for Mango's sheet content class
                   ];
                   
                   const modalSizes = DOMUtils.querySelector(modalSizeSelectors);
@@ -4039,6 +4041,9 @@ const MangoExtractor = {
         function extractSizesFromContainer(container) {
           if (!container) return;
           
+          // For tracking already processed sizes to avoid duplicates
+          const processedSizes = new Map();
+          
           // Get all size items/buttons
           const sizeItems = container.querySelectorAll("li button, li, button.SizeItem_sizeItem__v0Bm2");
           Logger.debug(`Found ${sizeItems.length} size items`);
@@ -4066,6 +4071,9 @@ const MangoExtractor = {
               continue;
             }
             
+            // Clean up size text - remove any non-size text that might be in the same element
+            sizeText = sizeText.trim();
+            
             // Check if this size is selected
             const isSelected = sizeItem.classList.contains('selected') || 
                               sizeItem.classList.contains('SizeItem_selected__tH_5C') ||
@@ -4079,22 +4087,91 @@ const MangoExtractor = {
                               sizeItem.classList.contains('unavailable') ||
                               !sizeItem.classList.contains('SizeItem_selectable__ETiIg'); // Not selectable = not in stock
             
+            // For Mango specifically, we need a different approach for checking availability
+            const isMango = window.location.href.toLowerCase().includes("mango.com");
+            let isInStock = !isDisabled;
+            
+            // Check for delayed delivery information (specific to Mango)
+            let hasDelayedDelivery = false;
+            let deliveryInfo = null;
+            
+            // Special handling for Mango sizes
+            if (isMango) {
+              // Check for marker classes that indicate unavailability
+              const isUnavailable = sizeItem.innerHTML.includes('SizeItemContent_notAvailable__') || 
+                                   sizeItem.innerHTML.includes('SizeItemContent_notifyMe__');
+              
+              // Look for delayed delivery labels within the size item
+              const delayedLabel = sizeItem.querySelector(".SizeDelayedLabel_sizeDelayedLabel__lLZqd");
+              if (delayedLabel) {
+                hasDelayedDelivery = true;
+                deliveryInfo = DOMUtils.getTextContent(delayedLabel).trim();
+                Logger.debug(`Found delayed delivery info: ${deliveryInfo}`);
+              }
+              
+              // Log comprehensive details about the element structure
+              Logger.debug(`Mango size ${sizeText} HTML structure: ${sizeItem.innerHTML.substring(0, 100)}...`);
+              Logger.debug(`Mango size ${sizeText}: isUnavailable = ${isUnavailable}, hasDelayedDelivery = ${hasDelayedDelivery}`);
+              
+              // A size is in stock if it doesn't have unavailability markers
+              isInStock = !isUnavailable;
+              
+              // Log all classes on this element for debugging
+              const allClasses = Array.from(sizeItem.classList).join(', ');
+              Logger.debug(`Mango size ${sizeText} classes: ${allClasses}, availability: ${isInStock}`);
+            }
+            
             // Create a value object with stock information
             const valueObj = {
               size: sizeText,
-              inStock: !isDisabled
+              inStock: isInStock,
+              delayedDelivery: hasDelayedDelivery,
+              deliveryInfo: deliveryInfo
             };
             const valueJson = JSON.stringify(valueObj);
             
-            // Add to our size variants
-            sizeVariants.push({
-              text: sizeText,
-              selected: isSelected,
-              value: valueJson
-            });
-            
-            Logger.debug(`Added Mango size: ${sizeText}, Selected: ${isSelected}, InStock: ${!isDisabled}`);
+            // Check if we've already processed this size
+            if (processedSizes.has(sizeText)) {
+              // Only update if this entry has more information
+              const existingValue = processedSizes.get(sizeText);
+              
+              // If the current entry is selected and the existing one isn't, replace it
+              if (isSelected && !existingValue.selected) {
+                processedSizes.set(sizeText, {
+                  text: sizeText,
+                  selected: isSelected,
+                  value: valueJson
+                });
+                Logger.debug(`Updated Mango size: ${sizeText}, Selected: ${isSelected}, InStock: ${isInStock}, Delayed: ${hasDelayedDelivery}`);
+              }
+              
+              // If the current entry has delivery info and the existing one doesn't, replace it
+              else if (hasDelayedDelivery && !existingValue.value.includes('delayedDelivery')) {
+                processedSizes.set(sizeText, {
+                  text: sizeText,
+                  selected: isSelected || existingValue.selected, // Preserve selection state
+                  value: valueJson
+                });
+                Logger.debug(`Updated Mango size with delivery info: ${sizeText}, InStock: ${isInStock}`);
+              }
+            } else {
+              // First time seeing this size, add it to the map
+              processedSizes.set(sizeText, {
+                text: sizeText,
+                selected: isSelected,
+                value: valueJson
+              });
+              
+              Logger.debug(`Added Mango size: ${sizeText}, Selected: ${isSelected}, InStock: ${isInStock}, Delayed: ${hasDelayedDelivery}`);
+            }
           }
+          
+          // Convert the map values to an array and add to sizeVariants
+          for (const sizeOption of processedSizes.values()) {
+            sizeVariants.push(sizeOption);
+          }
+          
+          Logger.debug(`After deduplication: ${sizeVariants.length} unique Mango sizes`);
         }
         
         // If we found sizes through any method, add them to the result
@@ -5258,7 +5335,7 @@ function checkForUrlChanges() {
                                 currentUrl.includes("cartier.com/home") || 
                                 currentUrl.endsWith("cartier.com/") || 
                                 currentUrl.endsWith("cartier.com");
-                                
+      
       if (isCartierHomepage) {
         Logger.info("URL changed to Cartier homepage - skipping detection");
         if (window.FlutterChannel) {
