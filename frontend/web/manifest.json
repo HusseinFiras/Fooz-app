@@ -1,35 +1,25 @@
 {
-    "name": "frontend",
-    "short_name": "frontend",
-    "start_url": ".",
-    "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
-    "prefer_related_applications": false,
-    "icons": [
+    "name": "Fooz Luxury Price Checker",
+    "short_name": "Fooz",
+    "version": "1.0.0",
+    "description": "Tracks and compares product prices across luxury retail websites",
+    "manifest_version": 2,
+    "background": {
+        "scripts": ["assets/product_detector.js", "assets/extractors_loader.js"]
+    },
+    "content_scripts": [
         {
-            "src": "icons/Icon-192.png",
-            "sizes": "192x192",
-            "type": "image/png"
-        },
-        {
-            "src": "icons/Icon-512.png",
-            "sizes": "512x512",
-            "type": "image/png"
-        },
-        {
-            "src": "icons/Icon-maskable-192.png",
-            "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "maskable"
-        },
-        {
-            "src": "icons/Icon-maskable-512.png",
-            "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "maskable"
+            "matches": ["*://*/*"],
+            "js": ["assets/product_detector.js"]
         }
+    ],
+    "web_accessible_resources": [
+        "assets/extractors_loader.js",
+        "assets/mango_extractor.js"
+    ],
+    "permissions": [
+        "<all_urls>",
+        "webNavigation",
+        "tabs"
     ]
 }

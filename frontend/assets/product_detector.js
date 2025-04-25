@@ -4898,8 +4898,17 @@ const ProductExtractor = {
         }
       }
       
-      if (MangoExtractor.isMango()) {
-        Logger.info("Detected Mango site, using Mango extractor");
+      // First try external Mango extractor if available
+      if (window.MangoExtractor && window.MangoExtractor.isMango()) {
+        Logger.info("Detected Mango site, using external Mango extractor");
+        const mangoResult = window.MangoExtractor.extract();
+        if (mangoResult && mangoResult.success) {
+          return mangoResult;
+        }
+      } 
+      // Fallback to built-in Mango extractor if external one isn't loaded
+      else if (MangoExtractor.isMango()) {
+        Logger.info("Detected Mango site, using built-in Mango extractor");
         const mangoResult = MangoExtractor.extract();
         if (mangoResult && mangoResult.success) {
           return mangoResult;
@@ -5464,6 +5473,27 @@ observer.observe(document.body, {
   attributes: false,
   characterData: false,
 });
+
+// Load external extractors
+function loadExtractors() {
+  // Create script element to load the extractors loader
+  const script = document.createElement('script');
+  script.src = 'assets/extractors_loader.js';
+  script.onload = () => {
+    console.log('Extractors loader loaded successfully');
+    // Initialize utilities for extractors
+    window.ExtractorsLoader.initUtilitiesForExtractors();
+    // Load all extractors
+    window.ExtractorsLoader.loadAllExtractors();
+  };
+  script.onerror = (error) => {
+    console.error('Failed to load extractors loader', error);
+  };
+  document.head.appendChild(script);
+}
+
+// Load the extractors
+loadExtractors();
 
 // Start URL change detection
 checkForUrlChanges();
