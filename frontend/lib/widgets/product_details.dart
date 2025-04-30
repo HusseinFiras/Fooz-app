@@ -662,6 +662,33 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       }
     }
 
+    // For Massimo Dutti - log the brand for debugging
+    final isProductFromMassimoDutti = widget.productInfo.brand?.toLowerCase() == 'massimo dutti' ||
+        widget.productInfo.url.toLowerCase().contains('massimodutti.com');
+    
+    if (isProductFromMassimoDutti) {
+      debugPrint('[PD] 🛍️ Processing Massimo Dutti product: ${widget.productInfo.title}');
+      // Log the variants structure for Massimo Dutti
+      if (widget.productInfo.variants != null) {
+        debugPrint('[PD] Variants keys: ${widget.productInfo.variants!.keys.join(', ')}');
+        
+        if (widget.productInfo.variants!.containsKey('sizes')) {
+          final sizes = widget.productInfo.variants!['sizes']!;
+          debugPrint('[PD] Size count: ${sizes.length}');
+          
+          // Log the first few sizes
+          for (int i = 0; i < min(sizes.length, 3); i++) {
+            final size = sizes[i];
+            debugPrint('[PD] Size ${i+1}: ${size.text}, selected: ${size.selected}, value: ${size.value}');
+          }
+        } else {
+          debugPrint('[PD] ⚠️ No "sizes" key in variants map for Massimo Dutti product');
+        }
+      } else {
+        debugPrint('[PD] ⚠️ No variants in ProductInfo for Massimo Dutti product');
+      }
+    }
+
     // Filter out nonsensical or placeholder options
     final filteredOptions = sizeOptions.where((option) {
       final String lowerText = option.text.toLowerCase().trim();
@@ -731,6 +758,10 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     // For Bershka products
     bool isBershka = widget.productInfo.brand?.toLowerCase() == 'bershka' ||
         widget.productInfo.url.toLowerCase().contains('bershka.com');
+      
+    // For Massimo Dutti products
+    bool isMassimoDutti = widget.productInfo.brand?.toLowerCase() == 'massimo dutti' ||
+        widget.productInfo.url.toLowerCase().contains('massimodutti.com');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -765,6 +796,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
             bool isInStock = true; // Default to true unless explicitly marked false
             bool hasLimitedStock = false; // For Bershka "Only a few left" indicator
             bool hasDelayedDelivery = false; // For Mango "Delayed delivery" info
+            bool isBackSoon = false; // For Massimo Dutti "Coming Soon" status
             String? deliveryInfo; // To store delivery information for Mango products
 
             if (option.value != null) {
@@ -782,6 +814,11 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   // Check for limited stock flag (Bershka)
                   if (valueMap.containsKey('limitedStock')) {
                     hasLimitedStock = valueMap['limitedStock'] ?? false;
+                  }
+                  
+                  // Check for back soon flag (Massimo Dutti)
+                  if (valueMap.containsKey('backSoon')) {
+                    isBackSoon = valueMap['backSoon'] ?? false;
                   }
                   
                   // Check for delayed delivery info (Mango)
@@ -830,12 +867,23 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   : () {
                       // Show a message that the size is unavailable
                       HapticFeedback.heavyImpact();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Size ${option.text} is out of stock'),
-                          backgroundColor: Colors.red.shade700,
-                        ),
-                      );
+                      
+                      // For "Back Soon" sizes, show a different message
+                      if (isBackSoon) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Size ${option.text} will be back soon'),
+                            backgroundColor: Colors.amber.shade700,
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Size ${option.text} is out of stock'),
+                            backgroundColor: Colors.red.shade700,
+                          ),
+                        );
+                      }
                     },
               borderRadius: BorderRadius.circular(4),
               child: AnimatedContainer(
@@ -884,7 +932,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                     ),
 
                     // Show a small indicator for out of stock sizes
-                    if (!isInStock)
+                    if (!isInStock && !isBackSoon)
                       Positioned(
                         right: -4,
                         top: -4,
@@ -897,6 +945,26 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                           ),
                           child: Icon(
                             Icons.remove,
+                            size: 8,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                      
+                    // Show a "back soon" indicator for Massimo Dutti sizes
+                    if (isBackSoon)
+                      Positioned(
+                        right: -4,
+                        top: -4,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade600,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.update,
                             size: 8,
                             color: Colors.white,
                           ),
@@ -974,6 +1042,41 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                 SizedBox(width: 4),
                 Text(
                   'Only a few left',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade700,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+        // Add note for back soon indicator for Massimo Dutti
+        if (isMassimoDutti && displayOptions.any((option) {
+          try {
+            if (option.value != null && option.value!.contains('backSoon')) {
+              final valueMap = jsonDecode(option.value!) as Map<String, dynamic>;
+              return valueMap['backSoon'] == true;
+            }
+          } catch (e) {}
+          return false;
+        }))
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade600,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                SizedBox(width: 4),
+                Text(
+                  'Coming back soon',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade700,

@@ -4830,6 +4830,99 @@ const BershkaExtractor = {
   }
 };
 
+// Extract sizes for Massimo Dutti products
+function extractMassimoDuttiSizes() {
+  const results = { sizes: [] };
+  
+  try {
+    Logger.info("🔍 Attempting to extract Massimo Dutti sizes");
+    
+    // Log the current URL for debugging
+    Logger.debug(`Current URL: ${window.location.href}`);
+    
+    // Find the main size selector container
+    const sizeContainer = document.querySelector('product-size-selector-layout, .product-size-selector, .tabs.product-size-selector');
+    
+    if (!sizeContainer) {
+      Logger.warn("❌ No size container found for Massimo Dutti");
+      return results;
+    }
+    
+    Logger.debug(`Found Massimo Dutti size container: ${sizeContainer.className}`);
+    
+    // Find all size buttons
+    const sizeButtons = sizeContainer.querySelectorAll('button[role="option"], .product-size-selector__li button');
+    
+    if (!sizeButtons || sizeButtons.length === 0) {
+      Logger.warn("❌ No size buttons found in container");
+      return results;
+    }
+    
+    Logger.info(`✅ Found ${sizeButtons.length} size options`);
+    
+    // Process each size button
+    for (const button of sizeButtons) {
+      // Extract size text
+      const sizeTextElement = button.querySelector('.tab-inner-size');
+      if (!sizeTextElement) continue;
+      
+      const sizeText = sizeTextElement.textContent.trim();
+      if (!sizeText) continue;
+      
+      // Determine if this size is selected
+      const isSelected = button.getAttribute('aria-selected') === 'true';
+      
+      // Determine stock status
+      let isInStock = true; // Default to in stock
+      let isBackSoon = false;
+      
+      // Check for unavailable status
+      if (button.classList.contains('c-middle-grey')) {
+        // This indicates either "Back Soon" or "Sold Out"
+        
+        // Check for specific icons/labels
+        const icon = button.querySelector('.icon-sizes');
+        if (icon) {
+          const statusText = icon.getAttribute('data-title');
+          if (statusText) {
+            Logger.debug(`Size ${sizeText} has status: ${statusText}`);
+            
+            if (statusText.includes('ÇOK YAKINDA') || statusText.toLowerCase().includes('back soon')) {
+              isInStock = false;
+              isBackSoon = true;
+            } else if (statusText.includes('dev.product.soldOut') || statusText.toLowerCase().includes('sold out')) {
+              isInStock = false;
+              isBackSoon = false;
+            }
+          }
+        }
+      }
+      
+      // Create the value object with stock information
+      const valueObj = {
+        size: sizeText,
+        inStock: isInStock,
+        backSoon: isBackSoon
+      };
+      
+      // Add to results
+      results.sizes.push({
+        text: sizeText,
+        selected: isSelected,
+        value: JSON.stringify(valueObj)
+      });
+      
+      Logger.debug(`Added Massimo Dutti size: ${sizeText}, Selected: ${isSelected}, InStock: ${isInStock}, BackSoon: ${isBackSoon}`);
+    }
+    
+    Logger.info(`✅ Extracted ${results.sizes.length} sizes from Massimo Dutti product`);
+  } catch (error) {
+    Logger.error(`Error extracting Massimo Dutti sizes: ${error}`);
+  }
+  
+  return results;
+}
+
 // ==================== Main Product Extractor ====================
 
 // Main product extractor that orchestrates the extraction process
@@ -5111,6 +5204,30 @@ function detectAndReportProduct(retryCount = 0) {
         return;
       }
     }
+    
+    // Check if we're on Massimo Dutti non-product page and skip detection
+    if (url.includes("massimodutti.com")) {
+      // Massimo Dutti product URLs have a pattern with /tr/... followed by l + 8 digits + ?pelement= + digits
+      // Example: https://www.massimodutti.com/tr/yumusak-bantl%C4%B1-makosen-l12502550?pelement=45484097
+      const massimoDuttiProductPattern = /massimodutti\.com\/.*\/[^\/]+\-l\d{8}\?pelement=\d+/;
+      
+      // Also check for alternate pattern where l + 8 digits appears in the URL
+      const altMassimoDuttiProductPattern = /massimodutti\.com\/.*\/.*l\d{8}/;
+      
+      // Check if this is NOT a product page based on URL pattern
+      if (!massimoDuttiProductPattern.test(url) && !altMassimoDuttiProductPattern.test(url)) {
+        Logger.info("Skipping product detection on Massimo Dutti non-product page");
+        if (window.FlutterChannel) {
+          window.FlutterChannel.postMessage(JSON.stringify({
+            isProductPage: false,
+            success: false,
+            url: window.location.href,
+            message: "Skipped detection on Massimo Dutti non-product page"
+          }));
+        }
+        return;
+      }
+    }
 
     // Check if FlutterChannel exists
     if (!window.FlutterChannel) {
@@ -5240,6 +5357,25 @@ function detectAndReportProduct(retryCount = 0) {
         Logger.debug(`Size data: ${JSON.stringify(productInfo.variants.sizes)}`);
       }
     }
+
+    // Special handling for specific sites
+    // ... existing code ...
+    
+    // Add Massimo Dutti size extraction
+    if (window.location.href.includes('massimodutti.com')) {
+      Logger.info("🛍️ Detected Massimo Dutti product page");
+      
+      // Extract sizes using dedicated function
+      const sizeResults = extractMassimoDuttiSizes();
+      
+      // Add sizes to the result if found
+      if (sizeResults && sizeResults.sizes && sizeResults.sizes.length > 0) {
+        Logger.info(`Found ${sizeResults.sizes.length} sizes for Massimo Dutti product`);
+        productInfo.variants.sizes = sizeResults.sizes;
+      }
+    }
+    
+    // ... existing code ...
 
     // Report back to Flutter
     Logger.info("Sending product info to Flutter", productInfo);
@@ -5383,6 +5519,31 @@ function checkForUrlChanges() {
         return;
       }
     }
+    
+    // Skip detection on Massimo Dutti non-product pages
+    if (currentUrl.includes("massimodutti.com")) {
+      // Massimo Dutti product URLs have a pattern with /tr/... followed by l + 8 digits + ?pelement= + digits
+      // Example: https://www.massimodutti.com/tr/yumusak-bantl%C4%B1-makosen-l12502550?pelement=45484097
+      const massimoDuttiProductPattern = /massimodutti\.com\/.*\/[^\/]+\-l\d{8}\?pelement=\d+/;
+      
+      // Also check for alternate pattern where l + 8 digits appears in the URL
+      const altMassimoDuttiProductPattern = /massimodutti\.com\/.*\/.*l\d{8}/;
+      
+      // Check if this is NOT a product page based on URL pattern
+      if (!massimoDuttiProductPattern.test(currentUrl) && !altMassimoDuttiProductPattern.test(currentUrl)) {
+        Logger.info("Skipping product detection on Massimo Dutti non-product page");
+        if (window.FlutterChannel) {
+          window.FlutterChannel.postMessage(JSON.stringify({
+            isProductPage: false,
+            success: false,
+            url: currentUrl,
+            message: "Skipped detection on Massimo Dutti non-product page"
+          }));
+        }
+        setTimeout(checkForUrlChanges, 1000);
+        return;
+      }
+    }
 
     detectAndReportProduct();
   }
@@ -5457,6 +5618,21 @@ const observer = new MutationObserver((mutations) => {
       // Check if this is NOT a product page
       if (mangoNonProductPattern.test(currentUrl) && !mangoProductPattern.test(currentUrl)) {
         Logger.debug("DOM changes on Mango non-product page - skipping detection");
+        return;
+      }
+    }
+    
+    // Skip detection on Massimo Dutti non-product pages
+    if (currentUrl.includes("massimodutti.com")) {
+      // Massimo Dutti product URLs have a pattern with /tr/... followed by l + 8 digits + ?pelement= + digits
+      const massimoDuttiProductPattern = /massimodutti\.com\/.*\/[^\/]+\-l\d{8}\?pelement=\d+/;
+      
+      // Also check for alternate pattern where l + 8 digits appears in the URL
+      const altMassimoDuttiProductPattern = /massimodutti\.com\/.*\/.*l\d{8}/;
+      
+      // Check if this is NOT a product page based on URL pattern
+      if (!massimoDuttiProductPattern.test(currentUrl) && !altMassimoDuttiProductPattern.test(currentUrl)) {
+        Logger.debug("DOM changes on Massimo Dutti non-product page - skipping detection");
         return;
       }
     }
