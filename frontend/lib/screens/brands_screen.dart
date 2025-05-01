@@ -49,7 +49,7 @@ class _BrandsScreenState extends State<BrandsScreen> with TickerProviderStateMix
     
     // Define luxury brands
     final luxuryBrands = allBrands.where((brand) => 
-      ['Gucci', 'Cartier', 'Miu Miu', 'Beymen'].contains(brand['name'])
+      ['Gucci', 'Louis Vuitton', 'Cartier', 'Miu Miu', 'Beymen'].contains(brand['name'])
     ).toList();
     
     // Define fashion brands
@@ -60,7 +60,7 @@ class _BrandsScreenState extends State<BrandsScreen> with TickerProviderStateMix
     
     // Define accessories brands
     final accessoriesBrands = allBrands.where((brand) => 
-      ['Swarovski', 'Pandora', 'Blue Diamond'].contains(brand['name'])
+      ['Swarovski', 'Pandora'].contains(brand['name'])
     ).toList();
     
     _brandsByCategory = [
@@ -73,6 +73,10 @@ class _BrandsScreenState extends State<BrandsScreen> with TickerProviderStateMix
   
   // Helper method to convert brand name to filename format
   String _getBrandImageName(String brandName) {
+    // Special case for Louis Vuitton
+    if (brandName == 'Louis Vuitton') {
+      return 'louisvuitton';
+    }
     return brandName.toLowerCase().replaceAll(' ', '_').replaceAll('\'', '');
   }
   

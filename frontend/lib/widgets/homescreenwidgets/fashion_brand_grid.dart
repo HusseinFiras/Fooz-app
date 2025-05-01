@@ -49,16 +49,8 @@ class FashionBrandGrid extends StatelessWidget {
       'textSize': 22.0,
     },
     {
-      'name': '', // Blue Diamond
-      'siteIndex': 15, // Update with correct index in dataService for Blue Diamond
-      'imageAsset': 'assets/images/blue.jpg', // Will be replaced by you
-      'textColor': Colors.white,
-      'textPosition': {'left': 20.0, 'bottom': 15.0},
-      'textSize': 22.0,
-    },
-    {
       'name': '', // Lacoste
-      'siteIndex': 16, // Update with correct index in dataService for Lacoste
+      'siteIndex': 15, // Update with correct index in dataService for Lacoste
       'imageAsset': 'assets/images/lacoste.jpg', // Will be replaced by you
       'textColor': Colors.white,
       'textPosition': {'right': 20.0, 'bottom': 15.0},
@@ -182,30 +174,19 @@ class FashionBrandGrid extends StatelessWidget {
                   ],
                 ),
                 SizedBox(height: 1), // Thinner gap between rows
-                // Third row: Blue Diamond and Lacoste (square)
+                // Third row: Lacoste (square)
                 Row(
                   children: [
-                    // Apply rounded corners to first item in last row (bottom-left corner)
+                    // Apply rounded corners to Lacoste (both bottom-left and bottom-right corners)
                     _buildBrandItem(
                       context, 
                       _brandData[4], 
-                      itemWidth, 
+                      itemWidth * 2 + 1, // Width spans the full width including separator
                       itemHeight,
-                      borderRadius: BorderRadius.only(bottomLeft: Radius.circular(cornerRadius))
-                    ),
-                    // Thin vertical separator
-                    Container(
-                      width: 1,
-                      height: itemHeight,
-                      color: Colors.white, // Light separator color
-                    ),
-                    // Apply rounded corners to second item in last row (bottom-right corner)
-                    _buildBrandItem(
-                      context, 
-                      _brandData[5], 
-                      itemWidth, 
-                      itemHeight,
-                      borderRadius: BorderRadius.only(bottomRight: Radius.circular(cornerRadius))
+                      borderRadius: BorderRadius.only(
+                        bottomLeft: Radius.circular(cornerRadius),
+                        bottomRight: Radius.circular(cornerRadius)
+                      )
                     ),
                   ],
                 ),

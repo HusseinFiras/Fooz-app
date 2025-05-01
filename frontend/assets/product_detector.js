@@ -5476,26 +5476,55 @@ function checkForUrlChanges() {
     
     // Skip detection on Cartier homepage
     if (currentUrl.includes("cartier.com")) {
+      // Skip detection on Cartier homepage
       const isCartierHomepage = currentUrl.match(/cartier\.com\/[a-z-]+\/home/) || 
                                 currentUrl.includes("cartier.com/home") || 
                                 currentUrl.endsWith("cartier.com/") || 
                                 currentUrl.endsWith("cartier.com");
       
-      if (isCartierHomepage) {
-        Logger.info("URL changed to Cartier homepage - skipping detection");
+      // Skip detection on category pages
+      // Examples of category pages:
+      // https://www.cartier.com/en-tr/jewellery/collections/juste-un-clou/
+      // https://www.cartier.com/en-tr/watches/collections/santos-de-cartier/
+      const isCartierCategoryPage = currentUrl.match(/cartier\.com\/.*\/.*\/collections\//) || 
+                                   currentUrl.endsWith('/');
+      
+      if (isCartierHomepage || isCartierCategoryPage) {
+        Logger.info("Skipping product detection on Cartier non-product page");
         if (window.FlutterChannel) {
           window.FlutterChannel.postMessage(JSON.stringify({
             isProductPage: false,
             success: false,
             url: currentUrl,
-            message: "Skipped detection on Cartier homepage"
+            message: "Skipped detection on Cartier non-product page"
+          }));
+        }
+        return;
+      }
+    }
+    
+    // Skip detection on Louis Vuitton non-product pages
+    if (currentUrl.includes("louisvuitton.com")) {
+      // Louis Vuitton product URLs have /products/ pattern followed by product name and product ID (nvprod) and a final ID
+      // Example: https://us.louisvuitton.com/eng-us/products/run-away-sneaker-nvprod6120020v/1AHSS0
+      const louisVuittonProductPattern = /louisvuitton\.com\/.*\/products\/.*nvprod.*\//;
+      
+      // Check if this is NOT a product page
+      if (!louisVuittonProductPattern.test(currentUrl)) {
+        Logger.info("URL changed to Louis Vuitton non-product page - skipping detection");
+        if (window.FlutterChannel) {
+          window.FlutterChannel.postMessage(JSON.stringify({
+            isProductPage: false,
+            success: false,
+            url: currentUrl,
+            message: "Skipped detection on Louis Vuitton non-product page"
           }));
         }
         setTimeout(checkForUrlChanges, 1000);
         return;
       }
     }
-
+    
     // Skip detection on Mango non-product pages
     if (currentUrl.includes("mango.com")) {
       // Mango product URLs have /p/ pattern
@@ -5603,6 +5632,19 @@ const observer = new MutationObserver((mutations) => {
       
       if (isCartierHomepage || isCartierCategoryPage) {
         Logger.debug("DOM changes on Cartier non-product page - skipping detection");
+        return;
+      }
+    }
+    
+    // Skip detection on Louis Vuitton non-product pages
+    if (currentUrl.includes("louisvuitton.com")) {
+      // Louis Vuitton product URLs have /products/ pattern followed by product name and product ID (nvprod) and a final ID
+      // Example: https://us.louisvuitton.com/eng-us/products/run-away-sneaker-nvprod6120020v/1AHSS0
+      const louisVuittonProductPattern = /louisvuitton\.com\/.*\/products\/.*nvprod.*\//;
+      
+      // Check if this is NOT a product page
+      if (!louisVuittonProductPattern.test(currentUrl)) {
+        Logger.debug("DOM changes on Louis Vuitton non-product page - skipping detection");
         return;
       }
     }

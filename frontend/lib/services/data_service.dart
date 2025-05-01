@@ -5,6 +5,7 @@ class DataService {
   // List of all retail websites
   final List<Map<String, String>> retailSites = [
     {'name': 'Gucci', 'url': 'https://www.gucci.com/tr/en_gb/'},
+    {'name': 'Louis Vuitton', 'url': 'https://us.louisvuitton.com/eng-us/homepage'},
     {'name': 'Zara', 'url': 'https://www.zara.com/tr/en/'},
     {'name': 'Stradivarius', 'url': 'https://www.stradivarius.com/tr/en/'},
     {'name': 'Cartier', 'url': 'https://www.cartier.com/en-tr/home'},
@@ -19,7 +20,6 @@ class DataService {
     {'name': 'Victoria\'s Secret', 'url': 'https://www.victoriassecret.com.tr/'},
     {'name': 'Nocturne', 'url': 'https://www.nocturne.com.tr/'},
     {'name': 'Beymen', 'url': 'https://www.beymen.com/tr/kadin-10006'},
-    {'name': 'Blue Diamond', 'url': 'https://www.bluediamond.com.tr/'},
     {'name': 'Lacoste', 'url': 'https://www.lacoste.com.tr/'},
     {'name': 'Manc', 'url': 'https://tr.mancofficial.com/'},
     {'name': 'Ipekyol', 'url': 'https://www.ipekyol.com.tr/'},

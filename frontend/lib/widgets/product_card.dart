@@ -25,6 +25,7 @@ class ProductCard extends StatelessWidget {
     // Check against known brand URLs
     final brandMatches = {
       'gucci.com': 'Gucci',
+      'louisvuitton.com': 'Louis Vuitton',
       'zara.com': 'Zara',
       'stradivarius.com': 'Stradivarius',
       'cartier.com': 'Cartier',
@@ -39,7 +40,6 @@ class ProductCard extends StatelessWidget {
       'victoriassecret': 'Victoria\'s Secret',
       'nocturne': 'Nocturne',
       'beymen': 'Beymen',
-      'bluediamond': 'Blue Diamond',
       'lacoste': 'Lacoste',
       'mancofficial': 'Manc',
       'ipekyol': 'Ipekyol',
