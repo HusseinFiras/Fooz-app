@@ -44,6 +44,10 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
   VariantOption? _selectedColor;
   VariantOption? _selectedSize;
   bool _selectionChanged = false; // Track if user has changed selections
+  
+  // Track color-specific URLs for Pandora products
+  Map<String, String> _colorUrls = {};
+  String? _selectedColorUrl;
 
   @override
   void initState() {
@@ -51,6 +55,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     _checkProductStatus();
     _logBasicProductInfo();
     _initSelectedVariants();
+    _extractColorUrls();
   }
 
   void _initSelectedVariants() {
@@ -58,27 +63,52 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     if (widget.productInfo.variants != null) {
       final variants = widget.productInfo.variants!;
       
+      // Debug: Log all variant keys to see what's available
+      debugPrint('[PD] Available variant types: ${variants.keys.join(', ')}');
+      
       // Find initially selected color
       if (variants.containsKey('colors') && variants['colors'] != null) {
+        debugPrint('[PD] Found ${variants['colors']!.length} colors in ProductInfo');
+        // Log the first few colors for debugging
+        for (int i = 0; i < min(variants['colors']!.length, 3); i++) {
+          final color = variants['colors']![i];
+          debugPrint('[PD] Color ${i+1}: ${color.text}, selected: ${color.selected}, value: ${color.value}');
+        }
+        
         for (final color in variants['colors']!) {
           if (color.selected) {
             _selectedColor = color;
             _selectedColorText = color.text;
+            debugPrint('[PD] Selected color: ${color.text}');
             break;
           }
         }
+      } else {
+        debugPrint('[PD] ⚠️ No colors found in ProductInfo');
       }
       
       // Find initially selected size
       if (variants.containsKey('sizes') && variants['sizes'] != null) {
+        debugPrint('[PD] Found ${variants['sizes']!.length} sizes in ProductInfo');
+        // Log the first few sizes for debugging
+        for (int i = 0; i < min(variants['sizes']!.length, 3); i++) {
+          final size = variants['sizes']![i];
+          debugPrint('[PD] Size ${i+1}: ${size.text}, selected: ${size.selected}, value: ${size.value}');
+        }
+        
         for (final size in variants['sizes']!) {
           if (size.selected) {
             _selectedSize = size;
             _selectedSizeText = size.text;
+            debugPrint('[PD] Selected size: ${size.text}');
             break;
           }
         }
+      } else {
+        debugPrint('[PD] ⚠️ No sizes found in ProductInfo');
       }
+    } else {
+      debugPrint('[PD] ⚠️ No variants data in ProductInfo');
     }
   }
 
@@ -401,6 +431,44 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     // For Stradivarius products
     bool isStradivarius = widget.productInfo.brand?.toLowerCase() == 'stradivarius' ||
         widget.productInfo.url.toLowerCase().contains('stradivarius.com');
+        
+    // For Pandora products - special handling for metals as colors
+    bool isPandora = widget.productInfo.brand?.toLowerCase() == 'pandora' ||
+        widget.productInfo.url.toLowerCase().contains('pandora.net');
+        
+    // Special title for metals if this is Pandora
+    String sectionTitle = 'Colors';
+    if (isPandora) {
+      sectionTitle = 'Colors';
+      
+      if (filteredOptions.first.text.toLowerCase().contains('gold') ||
+          filteredOptions.first.text.toLowerCase().contains('silver') ||
+          filteredOptions.first.text.toLowerCase().contains('metal') ||
+          filteredOptions.first.text.toLowerCase().contains('altın') ||
+          filteredOptions.first.text.toLowerCase().contains('gümüş')) {
+        sectionTitle = 'Metal';
+      }
+      
+      debugPrint('[PD] Displaying Pandora colors/metals');
+      
+      // Debug logging for Pandora color variants
+      if (filteredOptions.isNotEmpty) {
+        debugPrint('[PD] First Pandora color option details:');
+        for (var option in filteredOptions) {
+          if (option.value != null) {
+            debugPrint('[PD] Color: ${option.text}, Value type: ${option.value!.startsWith('{') ? 'JSON' : 'String'}');
+            if (option.value!.startsWith('{')) {
+              try {
+                final colorData = jsonDecode(option.value!);
+                debugPrint('[PD] Color data: ${colorData['colorName']}, class: ${colorData['colorClass']}, image: ${colorData['imageUrl'] != null ? 'available' : 'none'}');
+              } catch (e) {
+                debugPrint('[PD] Failed to parse color JSON: $e');
+              }
+            }
+          }
+        }
+      }
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -410,7 +478,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
           child: Row(
             children: [
               Text(
-                'Colors',
+                sectionTitle,
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
               if (_selectedColorText != null)
@@ -440,19 +508,196 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
               colorFromRGB = _parseRgbColor(option.value!);
             }
 
-            // Check if the variant has an image URL
-            final bool hasImageUrl = option.value != null &&
-                (option.value!.startsWith('http') ||
-                    option.value!.startsWith('//'));
+            // Check if the variant has an image URL or JSON color data
+            bool hasImageUrl = false;
+            String? imageUrl;
+            String? colorClassName;
+            
+            // Process JSON data if available (used by Pandora)
+            if (option.value != null && option.value!.startsWith('{')) {
+              try {
+                final colorData = jsonDecode(option.value!);
+                
+                // Extract image URL
+                if (colorData['imageUrl'] != null && colorData['imageUrl'].toString().isNotEmpty) {
+                  imageUrl = colorData['imageUrl'].toString();
+                  hasImageUrl = true;
+                }
+                
+                // Extract color class name for Pandora colors
+                if (colorData['colorClass'] != null) {
+                  colorClassName = colorData['colorClass'].toString();
+                  debugPrint('[PD] Found color class: $colorClassName for $colorText');
+                }
+              } catch (e) {
+                debugPrint('[PD] Error parsing color JSON: $e');
+              }
+            } 
+            // Check for direct image URL
+            else if (option.value != null && 
+                (option.value!.startsWith('http') || option.value!.startsWith('//'))) {
+              imageUrl = option.value;
+              hasImageUrl = true;
+            }
+            
+            // For Pandora: Apply color based on class name or color text
+            if (isPandora) {
+              final lowerColorText = colorText.toLowerCase();
+              
+              // First try to use colorClassName if available
+              if (colorClassName != null) {
+                if (colorClassName == 'red') {
+                  colorFromRGB = Colors.red.shade600;
+                } else if (colorClassName == 'black') {
+                  colorFromRGB = Colors.black;
+                } else if (colorClassName == 'pink') {
+                  colorFromRGB = Colors.pink.shade300;
+                } else if (colorClassName == 'clear') {
+                  colorFromRGB = Colors.white;
+                }
+              }
+              // Fallback to text-based matching
+              else if (lowerColorText.contains('red') || lowerColorText.contains('kırmızı')) {
+                colorFromRGB = Colors.red.shade600;
+              } else if (lowerColorText.contains('black') || lowerColorText.contains('siyah')) {
+                colorFromRGB = Colors.black;
+              } else if (lowerColorText.contains('pink') || lowerColorText.contains('pembe')) {
+                colorFromRGB = Colors.pink.shade300;
+              } else if (lowerColorText.contains('clear') || lowerColorText.contains('şeffaf')) {
+                colorFromRGB = Colors.white;
+              } else if (lowerColorText.contains('silver') || lowerColorText.contains('gümüş')) {
+                colorFromRGB = Color(0xFFCCCCCC);
+              } else if (lowerColorText.contains('gold') || lowerColorText.contains('altın')) {
+                colorFromRGB = Color(0xFFD4AF37);
+              } else if (lowerColorText.contains('rose gold') || lowerColorText.contains('pembe altın')) {
+                colorFromRGB = Color(0xFFB76E79);
+              }
+              
+              // If we couldn't determine the color yet, use a mapping based on the Turkish color names
+              if (colorFromRGB == null) {
+                // Map between Turkish color names and colors
+                final Map<String, Color> turkishColorMap = {
+                  'kırmızı': Colors.red.shade600,
+                  'siyah': Colors.black,
+                  'pembe': Colors.pink.shade300,
+                  'şeffaf': Colors.white,
+                  'gümüş': Color(0xFFCCCCCC),
+                  'altın': Color(0xFFD4AF37),
+                  'mavi': Colors.blue.shade600,
+                  'yeşil': Colors.green.shade600,
+                  'sarı': Colors.yellow.shade600,
+                  'mor': Colors.purple.shade600,
+                  'turuncu': Colors.orange.shade600,
+                  'kahverengi': Colors.brown.shade600,
+                  'bej': Color(0xFFF5F5DC),
+                  'gri': Colors.grey,
+                };
+                
+                // Check color text against Turkish color map
+                for (final entry in turkishColorMap.entries) {
+                  if (lowerColorText.contains(entry.key)) {
+                    colorFromRGB = entry.value;
+                    break;
+                  }
+                }
+              }
+            }
 
             // Use parsed RGB color if available, otherwise try to extract from name
             final Color displayColor =
                 colorFromRGB ?? _extractColorFromName(colorText) ?? Colors.grey;
 
-            // If using image URL - this is for sites like Stradivarius that provide color images
-            if (hasImageUrl) {
-              final imageUrl = _fixImageUrl(option.value!);
+            // If using image URL - this is for sites like Stradivarius or Pandora that provide color/metal images
+            if (hasImageUrl && imageUrl != null) {
+              final fixedImageUrl = _fixImageUrl(imageUrl);
+              
+              // For Pandora, we'll use color swatches directly instead of trying to load images
+              if (isPandora) {
+                return Column(
+                  children: [
+                    // Color swatch
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        setState(() {
+                          _selectedColorText = colorText;
+                          _selectedColor = option;
+                          _selectionChanged = true; // Mark that a change was made
+                          
+                          // For Pandora: Store selected color URL if available
+                          if (_colorUrls.containsKey(colorText)) {
+                            _selectedColorUrl = _colorUrls[colorText];
+                            debugPrint('[PD] Selected Pandora color URL: $_selectedColorUrl');
+                            
+                            // TODO: In a future implementation, could fetch sizes for this specific color
+                            // _updateSizesForSelectedColor(_selectedColorUrl);
+                          }
+                        });
+                        
+                        // Update cart/favorites immediately if selection changes
+                        _updateProductWithSelections();
+                        
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Selected ${isPandora && sectionTitle == 'Metal' ? "metal" : "color"}: $colorText')),
+                        );
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: displayColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isSelected ? Colors.black : Colors.grey.shade300,
+                            width: isSelected ? 2 : 1,
+                          ),
+                          boxShadow: isSelected
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.15),
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
+                                  )
+                                ]
+                              : null,
+                        ),
+                        child: isSelected
+                            ? Center(
+                                child: Icon(
+                                  Icons.check,
+                                  color: _isLightColor(displayColor)
+                                      ? Colors.black
+                                      : Colors.white,
+                                  size: 20,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ),
 
+                    // Color name
+                    SizedBox(height: 4),
+                    SizedBox(
+                      width: 52,
+                      child: Text(
+                        colorText,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade800,
+                          fontWeight:
+                              isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              // For other sites, use the image approach
               return Stack(
                 children: [
                   // Color swatch with image
@@ -463,13 +708,22 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                         _selectedColorText = colorText;
                         _selectedColor = option;
                         _selectionChanged = true; // Mark that a change was made
+                        
+                        // For Pandora: Store selected color URL if available
+                        if (isPandora && _colorUrls.containsKey(colorText)) {
+                          _selectedColorUrl = _colorUrls[colorText];
+                          debugPrint('[PD] Selected Pandora color URL: $_selectedColorUrl');
+                          
+                          // TODO: In a future implementation, could fetch sizes for this specific color
+                          // _updateSizesForSelectedColor(_selectedColorUrl);
+                        }
                       });
                       
                       // Update cart/favorites immediately if selection changes
                       _updateProductWithSelections();
                       
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Selected color: $colorText')),
+                        SnackBar(content: Text('Selected ${isPandora && sectionTitle == 'Metal' ? "metal" : "color"}: $colorText')),
                       );
                     },
                     child: AnimatedContainer(
@@ -487,7 +741,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(7),
                         child: CachedImageWidget(
-                          imageUrl: imageUrl,
+                          imageUrl: fixedImageUrl,
                           fit: BoxFit.cover,
                           brandName: widget.productInfo.brand,
                           colorName: colorText,
@@ -548,13 +802,22 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                         _selectedColorText = colorText;
                         _selectedColor = option;
                         _selectionChanged = true; // Mark that a change was made
+                        
+                        // For Pandora: Store selected color URL if available
+                        if (isPandora && _colorUrls.containsKey(colorText)) {
+                          _selectedColorUrl = _colorUrls[colorText];
+                          debugPrint('[PD] Selected Pandora color URL: $_selectedColorUrl');
+                          
+                          // TODO: In a future implementation, could fetch sizes for this specific color
+                          // _updateSizesForSelectedColor(_selectedColorUrl);
+                        }
                       });
                       
                       // Update cart/favorites immediately if selection changes
                       _updateProductWithSelections();
                       
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Selected color: $colorText')),
+                        SnackBar(content: Text('Selected ${isPandora && sectionTitle == 'Metal' ? "metal" : "color"}: $colorText')),
                       );
                     },
                     child: AnimatedContainer(
@@ -624,71 +887,10 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
   Widget _buildSizeVariants(List<VariantOption> sizeOptions) {
     debugPrint('[PD] Building UI for ${sizeOptions.length} size options');
     
-    // Debug log the raw size data
-    debugPrint('[PD] Raw size options: ${sizeOptions.map((option) => '${option.text}(selected: ${option.selected}, value: ${option.value})').join(', ')}');
-
-    // Check if product is from Mango
-    final isProductFromMango = widget.productInfo.brand?.toLowerCase() == 'mango' ||
-        widget.productInfo.url.toLowerCase().contains('mango.com');
+    // For Pandora - check if we've parsed sizes already
+    final isPandora = widget.productInfo.brand?.toLowerCase() == 'pandora' ||
+        widget.productInfo.url.toLowerCase().contains('pandora.net');
     
-    if (isProductFromMango) {
-      debugPrint('[PD] 🛍️ Processing Mango product: ${widget.productInfo.title}');
-    }
-    
-    // For Bershka - log the brand for debugging
-    final isProductFromBershka = widget.productInfo.brand?.toLowerCase() == 'bershka' ||
-        widget.productInfo.url.toLowerCase().contains('bershka.com');
-    
-    if (isProductFromBershka) {
-      debugPrint('[PD] 🛍️ Processing Bershka product: ${widget.productInfo.title}');
-      // Log the variants structure for Bershka
-      if (widget.productInfo.variants != null) {
-        debugPrint('[PD] Variants keys: ${widget.productInfo.variants!.keys.join(', ')}');
-        
-        if (widget.productInfo.variants!.containsKey('sizes')) {
-          final sizes = widget.productInfo.variants!['sizes']!;
-          debugPrint('[PD] Size count: ${sizes.length}');
-          
-          // Log the first few sizes
-          for (int i = 0; i < min(sizes.length, 3); i++) {
-            final size = sizes[i];
-            debugPrint('[PD] Size ${i+1}: ${size.text}, selected: ${size.selected}, value: ${size.value}');
-          }
-        } else {
-          debugPrint('[PD] ⚠️ No "sizes" key in variants map for Bershka product');
-        }
-      } else {
-        debugPrint('[PD] ⚠️ No variants in ProductInfo for Bershka product');
-      }
-    }
-
-    // For Massimo Dutti - log the brand for debugging
-    final isProductFromMassimoDutti = widget.productInfo.brand?.toLowerCase() == 'massimo dutti' ||
-        widget.productInfo.url.toLowerCase().contains('massimodutti.com');
-    
-    if (isProductFromMassimoDutti) {
-      debugPrint('[PD] 🛍️ Processing Massimo Dutti product: ${widget.productInfo.title}');
-      // Log the variants structure for Massimo Dutti
-      if (widget.productInfo.variants != null) {
-        debugPrint('[PD] Variants keys: ${widget.productInfo.variants!.keys.join(', ')}');
-        
-        if (widget.productInfo.variants!.containsKey('sizes')) {
-          final sizes = widget.productInfo.variants!['sizes']!;
-          debugPrint('[PD] Size count: ${sizes.length}');
-          
-          // Log the first few sizes
-          for (int i = 0; i < min(sizes.length, 3); i++) {
-            final size = sizes[i];
-            debugPrint('[PD] Size ${i+1}: ${size.text}, selected: ${size.selected}, value: ${size.value}');
-          }
-        } else {
-          debugPrint('[PD] ⚠️ No "sizes" key in variants map for Massimo Dutti product');
-        }
-      } else {
-        debugPrint('[PD] ⚠️ No variants in ProductInfo for Massimo Dutti product');
-      }
-    }
-
     // Filter out nonsensical or placeholder options
     final filteredOptions = sizeOptions.where((option) {
       final String lowerText = option.text.toLowerCase().trim();
@@ -710,58 +912,19 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       debugPrint('[PD] ⚠️ No valid size options to display');
       return const SizedBox.shrink();
     }
-
-    // For Mango products: deduplicate sizes since we might get duplicate entries
-    List<VariantOption> displayOptions = filteredOptions;
     
-    if (isProductFromMango) {
-      // Use a map to deduplicate by size text and get the most informative variant for each size
-      final Map<String, VariantOption> deduplicatedSizes = {};
+    // Size label specific to Pandora
+    String sectionTitle = 'Sizes';
+    if (isPandora) {
+      sectionTitle = 'Ring Size';
       
-      for (final option in filteredOptions) {
-        final sizeText = option.text.trim();
-        
-        if (!deduplicatedSizes.containsKey(sizeText)) {
-          // First time seeing this size, add it
-          deduplicatedSizes[sizeText] = option;
-        } else {
-          // We already have this size, decide which variant to keep
-          final existingOption = deduplicatedSizes[sizeText]!;
-          
-          // If the existing option doesn't have a value but the new one does, prefer the new one
-          if ((existingOption.value == null || existingOption.value!.isEmpty) && 
-              option.value != null && option.value!.isNotEmpty) {
-            deduplicatedSizes[sizeText] = option;
-          }
-          
-          // If one is selected and the other isn't, keep the selected one
-          if (!existingOption.selected && option.selected) {
-            deduplicatedSizes[sizeText] = option;
-          }
-        }
+      // Check if this is likely a bracelet rather than a ring
+      if (widget.productInfo.title != null &&
+          (widget.productInfo.title!.toLowerCase().contains('bracelet') ||
+           widget.productInfo.title!.toLowerCase().contains('bileklik'))) {
+        sectionTitle = 'Bracelet Size';
       }
-      
-      // Convert back to list
-      displayOptions = deduplicatedSizes.values.toList();
-      debugPrint('[PD] Deduplicated Mango sizes from ${filteredOptions.length} to ${displayOptions.length}');
     }
-
-    // For Zara products, ensure we have all common sizes displayed
-    // This is a fallback in case the JS code doesn't send all available sizes
-    bool isZara = widget.productInfo.brand?.toLowerCase() == 'zara' ||
-        widget.productInfo.url.toLowerCase().contains('zara.com');
-        
-    // For Stradivarius products
-    bool isStradivarius = widget.productInfo.brand?.toLowerCase() == 'stradivarius' ||
-        widget.productInfo.url.toLowerCase().contains('stradivarius.com');
-        
-    // For Bershka products
-    bool isBershka = widget.productInfo.brand?.toLowerCase() == 'bershka' ||
-        widget.productInfo.url.toLowerCase().contains('bershka.com');
-      
-    // For Massimo Dutti products
-    bool isMassimoDutti = widget.productInfo.brand?.toLowerCase() == 'massimo dutti' ||
-        widget.productInfo.url.toLowerCase().contains('massimodutti.com');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -771,7 +934,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
           child: Row(
             children: [
               Text(
-                'Sizes',
+                sectionTitle,
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
               if (_selectedSizeText != null)
@@ -791,52 +954,27 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: displayOptions.map((option) {
-            // Parse inStock information from value
+          children: filteredOptions.map((option) {
+            // Parse size information from value
             bool isInStock = true; // Default to true unless explicitly marked false
-            bool hasLimitedStock = false; // For Bershka "Only a few left" indicator
-            bool hasDelayedDelivery = false; // For Mango "Delayed delivery" info
-            bool isBackSoon = false; // For Massimo Dutti "Coming Soon" status
-            String? deliveryInfo; // To store delivery information for Mango products
-
+            String? sizeValue;
+            String? sizeAttr;
+            
             if (option.value != null) {
               try {
-                // Check different formats of how stock info might be stored
-                if (option.value!.contains('"inStock"') ||
-                    option.value!.contains("'inStock'")) {
-                  // For the JSON format from extractors
-                  final valueMap =
-                      jsonDecode(option.value!) as Map<String, dynamic>;
+                // Parse the JSON value
+                final valueMap = jsonDecode(option.value!) as Map<String, dynamic>;
+                
+                // Get the inStock value directly from the JSON
+                isInStock = valueMap['inStock'] ?? true;
+                
+                // For Pandora, get the size value and attribute
+                if (isPandora) {
+                  sizeValue = valueMap['sizeValue']?.toString();
+                  sizeAttr = valueMap['sizeAttr']?.toString();
                   
-                  // Get the inStock value directly from the JSON
-                  isInStock = valueMap['inStock'] ?? true;
-                  
-                  // Check for limited stock flag (Bershka)
-                  if (valueMap.containsKey('limitedStock')) {
-                    hasLimitedStock = valueMap['limitedStock'] ?? false;
-                  }
-                  
-                  // Check for back soon flag (Massimo Dutti)
-                  if (valueMap.containsKey('backSoon')) {
-                    isBackSoon = valueMap['backSoon'] ?? false;
-                  }
-                  
-                  // Check for delayed delivery info (Mango)
-                  if (valueMap.containsKey('delayedDelivery')) {
-                    hasDelayedDelivery = valueMap['delayedDelivery'] ?? false;
-                    deliveryInfo = valueMap['deliveryInfo']?.toString();
-                  }
-                } else if (option.value!.contains('out of stock') ||
-                    option.value!.contains('unavailable') ||
-                    option.value!.contains('sold out')) {
-                  // Text-based indicators
-                  isInStock = false;
-                } else if (isProductFromMango && option.value!.contains('delivery')) {
-                  // For Mango-specific delayed delivery information
-                  hasDelayedDelivery = true;
-                  deliveryInfo = option.value;
-                  // For Mango, items with delayed delivery are still in stock
-                  isInStock = true;
+                  // Log size information for debugging
+                  debugPrint('[PD] Pandora size ${option.text}: inStock=$isInStock, sizeValue=$sizeValue');
                 }
               } catch (e) {
                 // If parse fails, assume it's in stock
@@ -867,23 +1005,12 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                   : () {
                       // Show a message that the size is unavailable
                       HapticFeedback.heavyImpact();
-                      
-                      // For "Back Soon" sizes, show a different message
-                      if (isBackSoon) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Size ${option.text} will be back soon'),
-                            backgroundColor: Colors.amber.shade700,
-                          ),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Size ${option.text} is out of stock'),
-                            backgroundColor: Colors.red.shade700,
-                          ),
-                        );
-                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Size ${option.text} is out of stock'),
+                          backgroundColor: Colors.red.shade700,
+                        ),
+                      );
                     },
               borderRadius: BorderRadius.circular(4),
               child: AnimatedContainer(
@@ -932,7 +1059,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                     ),
 
                     // Show a small indicator for out of stock sizes
-                    if (!isInStock && !isBackSoon)
+                    if (!isInStock)
                       Positioned(
                         right: -4,
                         top: -4,
@@ -950,66 +1077,6 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                           ),
                         ),
                       ),
-                      
-                    // Show a "back soon" indicator for Massimo Dutti sizes
-                    if (isBackSoon)
-                      Positioned(
-                        right: -4,
-                        top: -4,
-                        child: Container(
-                          width: 12,
-                          height: 12,
-                          decoration: BoxDecoration(
-                            color: Colors.amber.shade600,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.update,
-                            size: 8,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      
-                    // Show a limited stock indicator for Bershka sizes
-                    if (hasLimitedStock && isInStock)
-                      Positioned(
-                        right: -4,
-                        top: -4,
-                        child: Container(
-                          width: 12,
-                          height: 12,
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade400,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.priority_high,
-                            size: 8,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      
-                    // Show a delayed delivery indicator for Mango
-                    if (isProductFromMango && hasDelayedDelivery && isInStock)
-                      Positioned(
-                        right: -4,
-                        top: -4,
-                        child: Container(
-                          width: 12,
-                          height: 12,
-                          decoration: BoxDecoration(
-                            color: Colors.amber.shade600,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.schedule,
-                            size: 8,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
                   ],
                 ),
               ),
@@ -1017,103 +1084,70 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
           }).toList(),
         ),
         
-        // Add note for limited stock indicator (only show if Bershka and any sizes have limited stock)
-        if (isBershka && displayOptions.any((option) {
-          try {
-            if (option.value != null && option.value!.contains('limitedStock')) {
-              final valueMap = jsonDecode(option.value!) as Map<String, dynamic>;
-              return valueMap['limitedStock'] == true;
-            }
-          } catch (e) {}
-          return false;
-        }))
+        // Add note for Pandora sizes
+        if (isPandora)
           Padding(
             padding: const EdgeInsets.only(top: 8.0),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade400,
-                    shape: BoxShape.circle,
+                // Size guide
+                InkWell(
+                  onTap: () {
+                    if (_selectedColorUrl != null) {
+                      // Show a tooltip about size guide
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Size guide is available on Pandora\'s website'),
+                          action: SnackBarAction(
+                            label: 'OK',
+                            onPressed: () {},
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Row(
+                      children: [
+                        Icon(Icons.help_outline, size: 16, color: Colors.grey.shade600),
+                        const SizedBox(width: 4),
+                        Text(
+                          "Need sizing help?",
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                            fontStyle: FontStyle.italic,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                SizedBox(width: 4),
-                Text(
-                  'Only a few left',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade700,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-        // Add note for back soon indicator for Massimo Dutti
-        if (isMassimoDutti && displayOptions.any((option) {
-          try {
-            if (option.value != null && option.value!.contains('backSoon')) {
-              final valueMap = jsonDecode(option.value!) as Map<String, dynamic>;
-              return valueMap['backSoon'] == true;
-            }
-          } catch (e) {}
-          return false;
-        }))
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0),
-            child: Row(
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: Colors.amber.shade600,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                SizedBox(width: 4),
-                Text(
-                  'Coming back soon',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade700,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-        // Add note for delayed delivery (only show if Mango and any sizes have delayed delivery)
-        if (isProductFromMango && displayOptions.any((option) {
-          return option.value != null && (
-            option.value!.contains('delayedDelivery') || 
-            option.value!.contains('delivery')
-          );
-        }))
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0),
-            child: Row(
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: Colors.amber.shade600,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                SizedBox(width: 4),
-                Text(
-                  'Extended delivery time',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade700,
-                    fontStyle: FontStyle.italic,
-                  ),
+                
+                // Out of stock indicator explanation
+                Row(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade400,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    SizedBox(width: 4),
+                    Text(
+                      'Out of stock',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1188,9 +1222,53 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         widget.productInfo.brand!.isNotEmpty;
     final isZara = widget.productInfo.brand?.toLowerCase() == 'zara' ||
         widget.productInfo.url.toLowerCase().contains('zara.com');
+    final isPandora = widget.productInfo.brand?.toLowerCase() == 'pandora' ||
+        widget.productInfo.url.toLowerCase().contains('pandora.net');
+
+    // Check if product has color variants
+    final hasColorVariants = widget.productInfo.variants != null &&
+        widget.productInfo.variants!.containsKey('colors') &&
+        widget.productInfo.variants!['colors'] != null &&
+        widget.productInfo.variants!['colors']!.isNotEmpty;
+    
+    // Check if product has size variants
+    final hasSizeVariants = widget.productInfo.variants != null &&
+        widget.productInfo.variants!.containsKey('sizes') &&
+        widget.productInfo.variants!['sizes'] != null &&
+        widget.productInfo.variants!['sizes']!.isNotEmpty;
 
     // Log basic product details for the UI
     debugPrint('[PD] Building product details UI for: ${widget.productInfo.title}');
+    debugPrint('[PD] Product has color variants: $hasColorVariants');
+    debugPrint('[PD] Product has size variants: $hasSizeVariants');
+    
+    // Pandora-specific debug logging
+    if (isPandora) {
+      debugPrint('[PD] 💍 Pandora product detected');
+      
+      if (widget.productInfo.variants != null) {
+        final variants = widget.productInfo.variants!;
+        
+        // Log variants again at build time
+        debugPrint('[PD] Pandora variants at build time: ${variants.keys.join(', ')}');
+        
+        // Check colors
+        if (variants.containsKey('colors') && variants['colors']!.isNotEmpty) {
+          debugPrint('[PD] Pandora has ${variants['colors']!.length} colors/metals at build time');
+        } else {
+          debugPrint('[PD] ⚠️ Pandora has no colors/metals at build time');
+        }
+        
+        // Check sizes
+        if (variants.containsKey('sizes') && variants['sizes']!.isNotEmpty) {
+          debugPrint('[PD] Pandora has ${variants['sizes']!.length} sizes at build time');
+        } else {
+          debugPrint('[PD] ⚠️ Pandora has no sizes at build time');
+        }
+      } else {
+        debugPrint('[PD] ⚠️ Pandora product has no variants at build time');
+      }
+    }
     
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1325,18 +1403,14 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                     ),
                   const SizedBox(height: 16),
 
-                  // Color variants with improved display
-                  if (widget.productInfo.variants != null &&
-                      widget.productInfo.variants!.containsKey('colors') &&
-                      widget.productInfo.variants!['colors']!.isNotEmpty)
+                  // Color variants with improved display - only show if the product actually has colors
+                  if (hasColorVariants)
                     _buildColorVariants(widget.productInfo.variants!['colors']!)
                   else
                     Container(), // Empty container when no colors
 
                   // Size variants with improved display
-                  if (widget.productInfo.variants != null &&
-                      widget.productInfo.variants!.containsKey('sizes') &&
-                      widget.productInfo.variants!['sizes']!.isNotEmpty)
+                  if (hasSizeVariants)
                     _buildSizeVariants(widget.productInfo.variants!['sizes']!)
                   else
                     Container(), // Empty container when no sizes
@@ -1582,5 +1656,44 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     final brightness =
         (299 * color.red + 587 * color.green + 114 * color.blue) / 1000;
     return brightness > 128;
+  }
+
+  // Extract URLs for each color variant (for Pandora products)
+  void _extractColorUrls() {
+    if (widget.productInfo.variants == null || 
+        !widget.productInfo.variants!.containsKey('colors') ||
+        widget.productInfo.variants!['colors'] == null) {
+      return;
+    }
+    
+    // Check if this is a Pandora product
+    final isPandora = widget.productInfo.brand?.toLowerCase() == 'pandora' ||
+        widget.productInfo.url.toLowerCase().contains('pandora.net');
+    
+    if (!isPandora) return;
+    
+    final colorVariants = widget.productInfo.variants!['colors']!;
+    
+    for (final colorOption in colorVariants) {
+      if (colorOption.value != null && colorOption.value!.startsWith('{')) {
+        try {
+          final colorData = jsonDecode(colorOption.value!);
+          if (colorData['href'] != null && colorData['href'].toString().isNotEmpty) {
+            _colorUrls[colorOption.text] = colorData['href'].toString();
+            
+            // If this is the selected color, set the URL
+            if (colorOption.selected) {
+              _selectedColorUrl = colorData['href'].toString();
+            }
+            
+            debugPrint('[PD] Extracted URL for ${colorOption.text}: ${colorData['href']}');
+          }
+        } catch (e) {
+          debugPrint('[PD] Error parsing color data JSON: $e');
+        }
+      }
+    }
+    
+    debugPrint('[PD] Extracted URLs for ${_colorUrls.length} colors');
   }
 }

@@ -299,6 +299,27 @@ const ProductPageDetector = {
   checkURL: function () {
     const url = window.location.href;
     
+    // Check if it's Pandora website
+    if (url.includes("pandora.net")) {
+      // Pandora product URLs have numeric/alphanumeric product codes ending with .html
+      // Examples: 198421C01.html, A009.html, 568707C00.html
+      const pandoraProductPattern = /pandora\.net\/.*\/.*\/[A-Z0-9]+\.html/;
+      
+      // Skip homepage and category pages
+      const pandoraNonProductPattern = /pandora\.net\/[a-z-]+\/?$/;
+      
+      if (pandoraProductPattern.test(url)) {
+        Logger.info(`Pandora product URL detected: ${url}`);
+        return true;
+      } else if (pandoraNonProductPattern.test(url)) {
+        Logger.info(`Pandora non-product page detected: ${url}`);
+        return false;
+      }
+      
+      // For other Pandora pages, fall back to standard detection methods
+      return false;
+    }
+    
     // Check if it's Guess website
     if (url.includes("guess.eu")) {
       // Guess product URLs have specific pattern with .html extension
@@ -4923,6 +4944,461 @@ function extractMassimoDuttiSizes() {
   return results;
 }
 
+// Massimo Dutti size extraction
+function extractMassimoDuttiSizes() {
+  // ... existing code ...
+}
+
+// Pandora Extractor - For extracting Pandora product information
+const PandoraExtractor = {
+  // Check if current site is Pandora
+  isPandora: function() {
+    const url = window.location.href.toLowerCase();
+    return url.includes("pandora.net");
+  },
+  
+  // Extract product information from Pandora pages
+  extract: function() {
+    try {
+      Logger.info("Extracting product data for Pandora");
+      
+      // Basic product information
+      const result = BaseExtractor.createResultObject();
+      result.brand = "Pandora";
+      result.extractionMethod = "pandora-specific";
+      
+      // Only initialize variants that exist
+      if (!result.variants) {
+        result.variants = {};
+      }
+      
+      // Check for color options
+      const hasColorOptions = !!document.querySelector('.variation-attribute[data-attr="color-group"]');
+      if (hasColorOptions) {
+        result.variants.colors = [];
+        Logger.debug("Found color options container");
+      }
+      
+      // Check for size options
+      const hasSizeOptions = !!document.querySelector('.size-attribute-container, select[name="ring-size"], .pdp-size-section');
+      if (hasSizeOptions) {
+        result.variants.sizes = [];
+        Logger.debug("Found size options container");
+      }
+      
+      Logger.debug("Initialized variants object for Pandora");
+      
+      // Extract title
+      const titleSelectors = [
+        '.product-name', 
+        '.pdp-title',
+        'h1.page-title',
+        '.ProductDetailMainInfo h1'
+      ];
+      
+      const titleElement = DOMUtils.querySelector(titleSelectors);
+      if (titleElement) {
+        result.title = DOMUtils.getTextContent(titleElement);
+        Logger.debug(`Found Pandora title: ${result.title}`);
+      }
+      
+      // Extract price
+      const priceSelectors = [
+        '.product-price .price',
+        '.price-container .price',
+        '.ProductDetailMainInfo .price',
+        '.product-info-main .price',
+        '[data-price-type="finalPrice"]',
+        '.sales.sales-origin .value'
+      ];
+      
+      const priceElement = DOMUtils.querySelector(priceSelectors);
+      if (priceElement) {
+        const priceText = DOMUtils.getTextContent(priceElement);
+        result.price = FormatUtils.formatPrice(priceText);
+        result.currency = FormatUtils.detectCurrency(priceText) || "TRY"; // Default to TRY if not detected
+        Logger.debug(`Found Pandora price: ${result.price} ${result.currency}`);
+      }
+      
+      // Extract original price (for sales)
+      const originalPriceSelectors = [
+        '.old-price .price',
+        '.price-container .old-price',
+        '[data-price-type="oldPrice"]',
+        '.price-was-container'
+      ];
+      
+      const originalPriceElement = DOMUtils.querySelector(originalPriceSelectors);
+      if (originalPriceElement) {
+        const originalPriceText = DOMUtils.getTextContent(originalPriceElement);
+        result.originalPrice = FormatUtils.formatPrice(originalPriceText);
+        Logger.debug(`Found Pandora original price: ${result.originalPrice}`);
+      }
+      
+      // Extract product image
+      const imageSelectors = [
+        '.gallery-placeholder img',
+        '.product-image-gallery img',
+        '.fotorama__stage__shaft img',
+        '.MagicZoom img',
+        '.pdp-primary-images img'
+      ];
+      
+      const imageElement = DOMUtils.querySelector(imageSelectors);
+      if (imageElement) {
+        // Get high-res image URL if available
+        const dataFullImage = imageElement.getAttribute('data-full') || 
+                             imageElement.getAttribute('data-zoom-image') || 
+                             imageElement.getAttribute('data-product-lg-image');
+                             
+        result.imageUrl = FormatUtils.makeUrlAbsolute(
+          dataFullImage || imageElement.getAttribute('src')
+        );
+        Logger.debug(`Found Pandora image URL: ${result.imageUrl}`);
+      }
+      
+      // Extract product description
+      const descriptionSelectors = [
+        '.product-description',
+        '.description',
+        '.value[itemprop="description"]',
+        '.product.attribute.overview',
+        '.product.attribute.description'
+      ];
+      
+      const descriptionElement = DOMUtils.querySelector(descriptionSelectors);
+      if (descriptionElement) {
+        result.description = DOMUtils.getTextContent(descriptionElement);
+        Logger.debug(`Found Pandora description`);
+      }
+      
+      // Extract product SKU/product code
+      const skuSelectors = [
+        '.product.attribute.sku .value',
+        '.sku .value',
+        '[itemprop="sku"]',
+        '.product-id-sku'
+      ];
+      
+      const skuElement = DOMUtils.querySelector(skuSelectors);
+      if (skuElement) {
+        result.sku = DOMUtils.getTextContent(skuElement);
+        Logger.debug(`Found Pandora SKU: ${result.sku}`);
+      } else {
+        // Try to extract SKU from URL
+        const skuMatch = window.location.href.match(/\/([A-Z0-9]+)\.html/);
+        if (skuMatch && skuMatch[1]) {
+          result.sku = skuMatch[1];
+          Logger.debug(`Extracted Pandora SKU from URL: ${result.sku}`);
+        }
+      }
+      
+      // Extract metal variants - specific to Pandora jewelry
+      this.extractPandoraMetalVariants(result);
+      
+      // Extract size variants - specific to Pandora jewelry
+      this.extractPandoraSizeVariants(result);
+      
+      // Check if we have the minimum needed information for success
+      result.success = !!(result.title && result.price);
+      
+      // Log final number of variants for debugging
+      Logger.debug(`Final Pandora variants - colors: ${result.variants.colors.length}, sizes: ${result.variants.sizes.length}`);
+      
+      return result;
+    } catch (e) {
+      Logger.error("Error extracting Pandora product data", e);
+      return {
+        isProductPage: true,
+        success: false,
+        brand: "Pandora",
+        url: window.location.href,
+        extractionMethod: "pandora-specific-failed",
+        error: e.message
+      };
+    }
+  },
+  
+  // Extract metal variants for Pandora products
+  extractPandoraMetalVariants: function(result) {
+    try {
+      Logger.info("Extracting Pandora metal variants");
+      
+      // First check if this product has color options at all
+      const hasColorOptions = !!document.querySelector('.variation-attribute[data-attr="color-group"]');
+      
+      if (!hasColorOptions) {
+        Logger.debug("No color options found for this Pandora product - skipping color extraction");
+        // Don't create an empty colors array if no colors exist
+        delete result.variants.colors;
+        return;
+      }
+      
+      // First try to find the color-group-container based on the HTML structure provided by the user
+      const colorGroupContainer = document.querySelector('#color-group-selector-198421C01, #color-group-selector-198421C03, .color-group-container, ul[id^="color-group-selector"]');
+      
+      if (colorGroupContainer) {
+        Logger.debug("Found color group container using ID or class selector");
+        
+        // Find all color attributes
+        const colorAttributes = colorGroupContainer.querySelectorAll('.color-attribute');
+        if (colorAttributes && colorAttributes.length > 0) {
+          Logger.debug(`Found ${colorAttributes.length} color attributes`);
+          
+          for (const colorAttr of colorAttributes) {
+            // Get the color variant link
+            const variantLink = colorAttr.querySelector('.color-variant-link');
+            if (!variantLink) continue;
+            
+            // Check if this color is selected
+            const isSelected = variantLink.classList.contains('selected');
+            
+            // Get color name from product-color-group which is more reliable than title
+            const colorName = variantLink.getAttribute('data-product-color-group') || 
+                             variantLink.getAttribute('title') || '';
+            if (!colorName) continue;
+            
+            // Get actual color from class - important for proper UI display
+            const colorClasses = variantLink.className.split(' ');
+            let colorClass = '';
+            for (const cls of colorClasses) {
+              if (cls.startsWith('color-swatch') || cls.startsWith('color-')) {
+                const potentialColor = cls.replace('color-swatch', '').replace('color-', '').trim();
+                if (potentialColor && potentialColor !== 'value' && potentialColor !== 'swatch') {
+                  colorClass = potentialColor;
+                  break;
+                }
+              }
+            }
+            
+            Logger.debug(`Found color class: ${colorClass} for color: ${colorName}`);
+            
+            // Get the URL of the color image
+            const swatchCircle = variantLink.querySelector('.swatch-circle');
+            const swatchColor = swatchCircle ? swatchCircle.className.split(' ').find(c => c.startsWith('swatch-circle-')) : null;
+            
+            // Get high-resolution product image for this color variant
+            const colorProductImage = variantLink.getAttribute('data-product-lg-image') || '';
+            
+            // Get product name for this color
+            const colorProductName = variantLink.getAttribute('data-product-name') || '';
+            
+            // Get the href URL to the color-specific product page (important for size availability)
+            const colorHref = variantLink.getAttribute('href') || '';
+            
+            // Create a color value object with more complete information
+            const colorData = {
+              type: "color",
+              colorName: colorName,
+              colorClass: colorClass || (swatchColor ? swatchColor.replace('swatch-circle-', '') : ''),
+              imageUrl: colorProductImage,
+              productName: colorProductName,
+              href: colorHref
+            };
+            
+            // Add this color variant - include color class in the value for proper UI rendering
+            result.variants.colors.push({
+              text: colorName,
+              selected: isSelected,
+              value: JSON.stringify(colorData)
+            });
+            
+            Logger.debug(`Added Pandora color variant: ${colorName}, selected: ${isSelected}, class: ${colorClass}`);
+          }
+          return;
+        }
+      }
+      
+      // Fallback to metal-group if color-group not found
+      const metalContainer = document.querySelector('.variation-attribute[data-attr="metal-group"] .metal-group-container');
+      
+      if (!metalContainer) {
+        Logger.debug("No metal variants found");
+        return;
+      }
+      
+      // Find all metal variant options
+      const metalItems = metalContainer.querySelectorAll('.color-attribute');
+      if (!metalItems || metalItems.length === 0) {
+        Logger.debug("No metal variant items found");
+        return;
+      }
+      
+      Logger.debug(`Found ${metalItems.length} metal variants`);
+      
+      // Get the current selected metal text, helpful for displaying in the UI
+      const selectedMetalText = document.querySelector('.metal-group-label span[data-auto="lblSelectedMetal"]');
+      const selectedMetalName = selectedMetalText ? DOMUtils.getTextContent(selectedMetalText) : '';
+      Logger.debug(`Selected metal from label: ${selectedMetalName}`);
+      
+      // Process metal variants
+      for (const metalItem of metalItems) {
+        const metalLink = metalItem.querySelector('.metal-variant-link');
+        if (!metalLink) continue;
+        
+        // Check if this metal is selected
+        const isSelected = metalLink.classList.contains('selected');
+        
+        // Get metal name from title attribute
+        const metalName = metalLink.getAttribute('title') || metalLink.getAttribute('data-product-metal-group');
+        if (!metalName) continue;
+        
+        // Get metal image
+        const metalImg = metalLink.querySelector('.swatch-circle-metal img');
+        const metalImgUrl = metalImg ? FormatUtils.makeUrlAbsolute(metalImg.getAttribute('src')) : '';
+        
+        // Get product data from metal variant
+        const productMetalGroup = metalLink.getAttribute('data-product-metal-group') || metalName;
+        
+        // Create a metal value object that can be stringified, following required format from website_extraction.mdc
+        const metalData = {
+          type: "metal",
+          metal: productMetalGroup,
+          imageUrl: metalImgUrl,
+          href: metalLink.getAttribute('href') || ''
+        };
+        
+        // Add as a color variant to ensure it displays in the UI
+        result.variants.colors.push({
+          text: productMetalGroup || metalName,
+          selected: isSelected || (productMetalGroup === selectedMetalName),
+          value: metalImgUrl || JSON.stringify(metalData)
+        });
+        
+        Logger.debug(`Added Pandora metal as color variant: ${productMetalGroup || metalName}, selected: ${isSelected}`);
+      }
+      
+      // If we have variant data but no colors were added, create a default one
+      if (result.variants.colors.length === 0) {
+        // Try to get metal info from product title or other elements
+        const productTitle = result.title || '';
+        let defaultMetal = '';
+        
+        if (productTitle.toLowerCase().includes('silver') || productTitle.toLowerCase().includes('gümüş')) {
+          defaultMetal = 'Silver';
+        } else if (productTitle.toLowerCase().includes('gold') || productTitle.toLowerCase().includes('altın')) {
+          defaultMetal = 'Gold';
+        } else if (productTitle.toLowerCase().includes('rose') || productTitle.toLowerCase().includes('pembe')) {
+          defaultMetal = 'Rose Gold';
+        } else {
+          defaultMetal = 'Metal';
+        }
+        
+        result.variants.colors.push({
+          text: defaultMetal,
+          selected: true,
+          value: 'default'
+        });
+        
+        Logger.debug(`Added default metal: ${defaultMetal}`);
+      }
+    } catch (e) {
+      Logger.warn("Error extracting Pandora metal variants:", e);
+    }
+  },
+  
+  // Extract size variants for Pandora products
+  extractPandoraSizeVariants: function(result) {
+    try {
+      Logger.info("Extracting Pandora size variants");
+      
+      // Check if we have a sizes array to work with
+      if (!result.variants || !result.variants.sizes) {
+        Logger.debug("No sizes array in variants - skipping size extraction");
+        return;
+      }
+      
+      // First try the standard size attributes
+      const sizeContainer = document.querySelector('.variation-attribute[data-attr="size"] .size-container');
+      
+      if (sizeContainer) {
+        Logger.debug("Found Pandora size container");
+        
+        // Find all size attributes 
+        const sizeAttributes = sizeContainer.querySelectorAll('.size-attributes');
+        
+        if (sizeAttributes && sizeAttributes.length > 0) {
+          Logger.debug(`Found ${sizeAttributes.length} size attributes`);
+          
+          for (const sizeAttr of sizeAttributes) {
+            // Check if this size is selectable or unselectable
+            const isSelectable = sizeAttr.classList.contains('selectable');
+            const isUnselectable = sizeAttr.classList.contains('unselectable');
+            
+            // Get the size button and check if it's disabled
+            const sizeButton = sizeAttr.querySelector('button');
+            if (!sizeButton) continue;
+            
+            const isDisabled = sizeButton.classList.contains('disabled');
+            const sizeText = DOMUtils.getTextContent(sizeButton).trim();
+            
+            // Skip if we can't find the size text
+            if (!sizeText) continue;
+            
+            // Determine if the size is available based on selectable status and disabled state
+            const isAvailable = isSelectable && !isUnselectable && !isDisabled;
+            
+            // Get the size value attribute
+            const sizeValue = sizeAttr.getAttribute('data-attr-value') || '';
+            const sizeAttrValue = sizeButton.getAttribute('data-sizeattr') || sizeText;
+            
+            // Create a value object with size information
+            const sizeData = {
+              size: sizeText,
+              sizeValue: sizeValue,
+              sizeAttr: sizeAttrValue,
+              inStock: isAvailable
+            };
+            
+            // Add the size variant
+            result.variants.sizes.push({
+              text: sizeText,
+              selected: false, // Pandora doesn't pre-select sizes
+              value: JSON.stringify(sizeData)
+            });
+            
+            Logger.debug(`Added Pandora size: ${sizeText}, in stock: ${isAvailable}`);
+          }
+          
+          // If we've found sizes, return
+          if (result.variants.sizes.length > 0) {
+            return;
+          }
+        }
+      }
+      
+      // Fallback to other size options if the main approach didn't find any
+      // ... existing fallback code ...
+    } catch (e) {
+      Logger.warn("Error extracting Pandora size variants:", e);
+    }
+  },
+  
+  // Method to extract size availability data for a specific color
+  extractColorSpecificSizesData: function(colorUrl) {
+    // This would be called when a user selects a color in the UI
+    // It would navigate to the color URL and extract the available sizes
+    // Currently not implemented as it would require a navigation
+    // This is more of a placeholder for potential future implementation
+    if (!colorUrl) return null;
+    
+    try {
+      Logger.info(`Extracting size data for color URL: ${colorUrl}`);
+      
+      // In a real implementation, we would:
+      // 1. Navigate to the colorUrl
+      // 2. Wait for the page to load
+      // 3. Extract size data from the new page
+      // 4. Return the size data
+      
+      return null;
+    } catch (e) {
+      Logger.warn(`Error extracting color-specific size data: ${e}`);
+      return null;
+    }
+  }
+};
+
 // ==================== Main Product Extractor ====================
 
 // Main product extractor that orchestrates the extraction process
@@ -4948,6 +5424,14 @@ const ProductExtractor = {
         const guessResult = GuessExtractor.extract();
         if (guessResult && guessResult.success) {
           return guessResult;
+        }
+      }
+      
+      if (PandoraExtractor.isPandora()) {
+        Logger.info("Detected Pandora site, using Pandora extractor");
+        const pandoraResult = PandoraExtractor.extract();
+        if (pandoraResult && pandoraResult.success) {
+          return pandoraResult;
         }
       }
       
@@ -5429,6 +5913,30 @@ function checkForUrlChanges() {
     Logger.info(`URL changed to: ${currentUrl}`);
     lastUrl = currentUrl;
     
+    // Skip detection on Pandora non-product pages
+    if (currentUrl.includes("pandora.net")) {
+      // Pandora product URLs have numeric/alphanumeric product codes ending with .html
+      const pandoraProductPattern = /pandora\.net\/.*\/.*\/[A-Z0-9]+\.html/;
+      
+      // Skip homepage and category pages
+      const pandoraNonProductPattern = /pandora\.net\/[a-z-]+\/?$/;
+      
+      // Check if this is NOT a product page
+      if (!pandoraProductPattern.test(currentUrl) && pandoraNonProductPattern.test(currentUrl)) {
+        Logger.info("URL changed to Pandora non-product page - skipping detection");
+        if (window.FlutterChannel) {
+          window.FlutterChannel.postMessage(JSON.stringify({
+            isProductPage: false,
+            success: false,
+            url: currentUrl,
+            message: "Skipped detection on Pandora non-product page"
+          }));
+        }
+        setTimeout(checkForUrlChanges, 1000);
+        return;
+      }
+    }
+    
     // Skip detection on Guess non-product pages
     if (currentUrl.includes("guess.eu")) {
       // Guess product URLs end with .html
@@ -5592,6 +6100,22 @@ const observer = new MutationObserver((mutations) => {
   observerDebounceTimer = setTimeout(() => {
     // Skip detection on Guess non-product pages
     const currentUrl = window.location.href;
+    
+    // Skip detection on Pandora non-product pages
+    if (currentUrl.includes("pandora.net")) {
+      // Pandora product URLs have numeric/alphanumeric product codes ending with .html
+      const pandoraProductPattern = /pandora\.net\/.*\/.*\/[A-Z0-9]+\.html/;
+      
+      // Skip non-product pages
+      const pandoraNonProductPattern = /pandora\.net\/[a-z-]+\/?$/;
+      
+      // Check if this is NOT a product page
+      if (!pandoraProductPattern.test(currentUrl) && pandoraNonProductPattern.test(currentUrl)) {
+        Logger.debug("DOM changes on Pandora non-product page - skipping detection");
+        return;
+      }
+    }
+    
     if (currentUrl.includes("guess.eu")) {
       // Guess product URLs end with .html
       const guessProductPattern = /guess\.eu\/.*\/.*\.html$/;
@@ -5627,6 +6151,9 @@ const observer = new MutationObserver((mutations) => {
                                 currentUrl.endsWith("cartier.com");
       
       // Skip detection on category pages
+      // Examples of category pages:
+      // https://www.cartier.com/en-tr/jewellery/collections/juste-un-clou/
+      // https://www.cartier.com/en-tr/watches/collections/santos-de-cartier/
       const isCartierCategoryPage = currentUrl.match(/cartier\.com\/.*\/.*\/collections\//) || 
                                    currentUrl.endsWith('/');
       

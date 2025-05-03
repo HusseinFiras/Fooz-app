@@ -35,6 +35,7 @@ class ProductCard extends StatelessWidget {
       'bershka.com': 'Bershka',
       'massimodutti': 'Massimo Dutti',
       'deepatelier': 'Deep Atelier',
+      'pandora.net': 'Pandora',
       'pandora': 'Pandora',
       'miumiu': 'Miu Miu',
       'victoriassecret': 'Victoria\'s Secret',
