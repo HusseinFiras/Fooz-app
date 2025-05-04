@@ -436,6 +436,38 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     bool isPandora = widget.productInfo.brand?.toLowerCase() == 'pandora' ||
         widget.productInfo.url.toLowerCase().contains('pandora.net');
         
+    // For Pandora products, we'll only show the selected color
+    List<VariantOption> displayOptions = filteredOptions;
+    
+    // Special handling for Pandora - only show selected color
+    if (isPandora) {
+      // Find the selected color
+      final selectedOptions = filteredOptions.where((option) => option.selected).toList();
+      
+      // If we found a selected color, only show that one
+      if (selectedOptions.isNotEmpty) {
+        displayOptions = selectedOptions;
+        debugPrint('[PD] Pandora: Showing only selected color: ${selectedOptions.first.text}');
+      } else if (_selectedColorText != null) {
+        // If we have a selected color in state but not in the options, find it
+        final matchingOptions = filteredOptions.where((option) => 
+          option.text == _selectedColorText).toList();
+        
+        if (matchingOptions.isNotEmpty) {
+          displayOptions = matchingOptions;
+          debugPrint('[PD] Pandora: Showing only matched color: ${matchingOptions.first.text}');
+        } else {
+          // Show the first color if no selected color found
+          displayOptions = [filteredOptions.first];
+          debugPrint('[PD] Pandora: No selected color found, showing first color');
+        }
+      } else {
+        // Show the first color if no selected color found
+        displayOptions = [filteredOptions.first];
+        debugPrint('[PD] Pandora: No selected color found, showing first color');
+      }
+    }
+        
     // Special title for metals if this is Pandora
     String sectionTitle = 'Colors';
     if (isPandora) {
@@ -498,7 +530,7 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
         Wrap(
           spacing: 10,
           runSpacing: 10,
-          children: filteredOptions.map((option) {
+          children: displayOptions.map((option) {
             final String colorText = option.text;
             final bool isSelected = colorText == _selectedColorText;
 
