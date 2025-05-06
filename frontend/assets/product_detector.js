@@ -426,6 +426,27 @@ const ProductPageDetector = {
       return false;
     }
     
+    // Check if it's Nocturne website
+    if (url.includes("nocturne.com.tr")) {
+      // Nocturne product URLs have a pattern with an underscore followed by numeric ID (_XXXXXX)
+      // Also allow query parameters after the ID
+      const nocturneProductPattern = /nocturne\.com\.tr\/.*_\d+($|\?)/;
+      
+      // Skip homepage and category pages
+      const nocturneNonProductPattern = /nocturne\.com\.tr\/(ust-giyim|aksesuar|indirim|giyim|alt-giyim|dis-giyim|plaj-giyim)?$/;
+      
+      if (nocturneProductPattern.test(url)) {
+        Logger.info(`Nocturne product URL detected: ${url}`);
+        return true;
+      } else if (nocturneNonProductPattern.test(url)) {
+        Logger.info(`Nocturne non-product page detected: ${url}`);
+        return false;
+      }
+      
+      // For other Nocturne pages, fall back to standard detection methods
+      return false;
+    }
+    
     const productURLPatterns = [
       /\/p\//, // Common pattern like /p/product-name
       /\/product\//, // Common pattern like /product/product-name
@@ -437,6 +458,7 @@ const ProductPageDetector = {
       /product_id=\d+/, // URL parameter style
       /\/prod\d+/, // product ID pattern
       /\/pr\//, // Gucci-specific pattern
+      /_\d+($|\?)/, // Nocturne-specific pattern like product-name_12345 or product-name_12345?d=10322
     ];
 
     for (const pattern of productURLPatterns) {
@@ -5950,6 +5972,379 @@ const VictoriasSecretExtractor = {
   }
 };
 
+// Nocturne size extraction
+function extractNocturneSizes() {
+  const results = { sizes: [] };
+  
+  try {
+    Logger.info("🔍 Attempting to extract Nocturne sizes");
+    
+    // Log the current URL for debugging
+    Logger.debug(`Current URL: ${window.location.href}`);
+    
+    // Find the size list container
+    const sizeContainer = document.querySelector('ul.size-list[data-js="size-list"]');
+    
+    if (!sizeContainer) {
+      Logger.warn("No size list container found on Nocturne product page");
+      return results;
+    }
+    
+    Logger.debug(`Found Nocturne size container: ${sizeContainer.tagName}`);
+    
+    // Get all size items
+    const sizeItems = sizeContainer.querySelectorAll('li.size-item[data-js="size-item"]');
+    Logger.debug(`Found ${sizeItems.length} size items`);
+    
+    // Process each size item
+    for (const sizeItem of sizeItems) {
+      try {
+        // Extract size information
+        const sizeName = sizeItem.getAttribute('data-name');
+        const stockCount = parseInt(sizeItem.getAttribute('data-stock') || '0', 10);
+        const isSelected = sizeItem.getAttribute('data-state') === 'True';
+        const status = sizeItem.getAttribute('data-status') || '';
+        
+        // Skip if size name is missing
+        if (!sizeName) {
+          continue;
+        }
+        
+        // Determine stock status
+        const isInStock = stockCount > 0;
+        
+        // Check if this is limited stock
+        const isLimitedStock = status.includes('Son');
+        
+        // Create the value object with stock information
+        const valueObject = {
+          size: sizeName,
+          inStock: isInStock,
+          limitedStock: isLimitedStock,
+          stockCount: stockCount
+        };
+        
+        // If there's a status, add it to the value object
+        if (status) {
+          valueObject.status = status;
+        }
+        
+        // Add size to results
+        results.sizes.push({
+          text: sizeName,
+          selected: isSelected,
+          value: JSON.stringify(valueObject)
+        });
+        
+        Logger.debug(`Added Nocturne size: ${sizeName}, Selected: ${isSelected}, InStock: ${isInStock}, Stock count: ${stockCount}`);
+      } catch (e) {
+        Logger.error(`Error processing Nocturne size item: ${e.message}`);
+      }
+    }
+    
+    Logger.info(`✅ Extracted ${results.sizes.length} Nocturne sizes`);
+  } catch (e) {
+    Logger.error(`❌ Error extracting Nocturne sizes: ${e.message}`);
+  }
+  
+  return results;
+}
+
+const NocturneExtractor = {
+  // Check if current site is Nocturne
+  isSiteNocturne: function() {
+    return window.location.href.includes('nocturne.com.tr');
+  },
+  
+  // Check if URL is a Nocturne product page
+  isNocturneProductUrl: function(url) {
+    if (!url) url = window.location.href;
+    const nocturneProductPattern = /nocturne\.com\.tr\/.*_\d+($|\?)/;
+    return nocturneProductPattern.test(url);
+  },
+  
+  // Check if URL is a Nocturne non-product page
+  isNocturneNonProductUrl: function(url) {
+    if (!url) url = window.location.href;
+    const nocturneNonProductPattern = /nocturne\.com\.tr\/(ust-giyim|aksesuar|indirim|giyim|alt-giyim|dis-giyim|plaj-giyim)?$/;
+    return nocturneNonProductPattern.test(url);
+  },
+  
+  // Extract product information from Nocturne
+  extract: function() {
+    try {
+      Logger.info("🛍️ Extracting Nocturne product information");
+      
+      // Create base result object with common properties
+      const result = {
+        isProductPage: true,
+        success: true,
+        url: window.location.href,
+        brand: "Nocturne",
+        extractionMethod: "nocturne-specific",
+        variants: {}
+      };
+      
+      // Extract product title
+      const titleSelectors = [
+        'h1.product-name',
+        '.product-detail h1',
+        '#product-name'
+      ];
+      
+      for (const selector of titleSelectors) {
+        const titleElement = document.querySelector(selector);
+        if (titleElement) {
+          result.title = titleElement.textContent.trim();
+          break;
+        }
+      }
+      
+      // Extract product price - Enhanced to handle different price structures
+      // Find the price container first
+      const priceContainer = document.querySelector('.product-price');
+      if (priceContainer) {
+        // Check for discounted price scenario (has old-price and new-price)
+        const oldPriceElement = priceContainer.querySelector('.old-price');
+        const newPriceElement = priceContainer.querySelector('.new-price');
+        
+        if (newPriceElement) {
+          // Get the current price from new-price element
+          let currentPriceText = newPriceElement.textContent.trim();
+          
+          // Handle nested font elements if present
+          if (currentPriceText.length === 0 && newPriceElement.querySelector('font')) {
+            const fontElements = newPriceElement.querySelectorAll('font');
+            for (const fontElement of fontElements) {
+              const textContent = fontElement.textContent.trim();
+              if (textContent.length > 0) {
+                currentPriceText = textContent;
+                break;
+              }
+            }
+          }
+          
+          Logger.debug(`Raw price text: ${currentPriceText}`);
+          
+          // Extract and clean the price text
+          // Remove currency symbol and non-numeric characters except decimal separator
+          currentPriceText = currentPriceText.replace(/[^\d,\.]/g, '');
+          
+          // Handle special case for Nocturne abbreviated prices
+          // If price appears to be abbreviated (like 2,65 instead of 2.650,00)
+          // Looking at the screenshot, prices are in thousands (2,65 means 2.650 TL)
+          // Check if it's likely an abbreviated price (less than 100 and has comma)
+          const priceValue = parseFloat(currentPriceText.replace(',', '.'));
+          if (priceValue < 100 && currentPriceText.includes(',')) {
+            // Multiply by 1000 to get the full price
+            result.price = priceValue * 1000;
+            Logger.debug(`Detected abbreviated price: ${currentPriceText} → ${result.price}`);
+          } else {
+            // Normal case - just convert to number
+            result.price = priceValue;
+            Logger.debug(`Standard price format: ${result.price}`);
+          }
+          
+          // Set currency (always TRY for Turkish Lira)
+          result.currency = 'TRY';
+        }
+        
+        // If old-price element exists, extract original price for discounted items
+        if (oldPriceElement) {
+          let originalPriceText = oldPriceElement.textContent.trim();
+          Logger.debug(`Raw original price text: ${originalPriceText}`);
+          
+          // Extract and clean the original price text
+          originalPriceText = originalPriceText.replace(/[^\d,\.]/g, '');
+          
+          // Handle abbreviated prices the same way
+          const originalPriceValue = parseFloat(originalPriceText.replace(',', '.'));
+          if (originalPriceValue < 100 && originalPriceText.includes(',')) {
+            // Multiply by 1000 to get the full price
+            result.originalPrice = originalPriceValue * 1000;
+            Logger.debug(`Detected abbreviated original price: ${originalPriceText} → ${result.originalPrice}`);
+          } else {
+            // Normal case - just convert to number
+            result.originalPrice = originalPriceValue;
+            Logger.debug(`Standard original price format: ${result.originalPrice}`);
+          }
+        }
+        
+        // Check for discount badge
+        const discountBadge = priceContainer.querySelector('.badge.new-black-badge');
+        if (discountBadge) {
+          const discountText = discountBadge.textContent.trim();
+          if (discountText) {
+            // Store discount information for debugging
+            Logger.debug(`Found discount badge: ${discountText}`);
+          }
+        }
+      } else {
+        Logger.warn("Could not find price container on Nocturne product page");
+      }
+      
+      // Extract product image
+      const imageSelectors = [
+        '.p-main-image img', // Main Nocturne product image selector
+        '.active-main img',  // Another main image selector for Nocturne
+        '.product-image img',
+        '.product-detail-image img',
+        '#product-zoom'
+      ];
+      
+      for (const selector of imageSelectors) {
+        const imageElement = document.querySelector(selector);
+        if (imageElement) {
+          // Get image source (prefer high-resolution version)
+          result.imageUrl = imageElement.getAttribute('src') || imageElement.getAttribute('data-src');
+          Logger.debug(`Found product image: ${result.imageUrl}`);
+          break;
+        }
+      }
+      
+      // If no image found with selectors, try alternative approach for Nocturne
+      if (!result.imageUrl) {
+        // Try to find the main image container - exact match for the HTML structure provided
+        const mainImageContainer = document.querySelector('.p-main-image.easyzoom--overlay');
+        if (mainImageContainer) {
+          // Look for the link inside it
+          const mainImageLink = mainImageContainer.querySelector('a.active-main');
+          if (mainImageLink) {
+            // Look for img within the link
+            const mainImage = mainImageLink.querySelector('img');
+            if (mainImage) {
+              result.imageUrl = mainImage.getAttribute('src');
+              Logger.debug(`Found product image through exact structure match: ${result.imageUrl}`);
+            } else {
+              // If no image found in link but link has an href, use that as fallback
+              const highResImageUrl = mainImageLink.getAttribute('href');
+              if (highResImageUrl) {
+                result.imageUrl = highResImageUrl;
+                Logger.debug(`Using high-res image from link href: ${result.imageUrl}`);
+              }
+            }
+          }
+        }
+      }
+      
+      // Extract product description
+      const descriptionSelectors = [
+        '.product-description',
+        '.detail-description',
+        '#accordion .accordion-body'
+      ];
+      
+      for (const selector of descriptionSelectors) {
+        const descriptionElement = document.querySelector(selector);
+        if (descriptionElement) {
+          result.description = descriptionElement.textContent.trim();
+          break;
+        }
+      }
+      
+      // Extract product SKU
+      const skuSelectors = [
+        '.product-sku',
+        '.sku-code'
+      ];
+      
+      for (const selector of skuSelectors) {
+        const skuElement = document.querySelector(selector);
+        if (skuElement) {
+          result.sku = skuElement.textContent.trim();
+          break;
+        }
+      }
+      
+      // Extract color variants
+      const colorContainer = document.querySelector('.color-list, .variant-group:has(.color-box)');
+      if (colorContainer) {
+        const colorItems = colorContainer.querySelectorAll('.color-box, .color-item');
+        if (colorItems && colorItems.length > 0) {
+          result.variants.colors = [];
+          
+          for (const colorItem of colorItems) {
+            try {
+              // Get color name
+              let colorName = colorItem.getAttribute('title') || colorItem.getAttribute('data-title');
+              
+              // If no title attribute, try to get from child elements
+              if (!colorName) {
+                const nameElement = colorItem.querySelector('.color-name');
+                if (nameElement) {
+                  colorName = nameElement.textContent.trim();
+                }
+              }
+              
+              // Skip if no color name found
+              if (!colorName) continue;
+              
+              // Check if this color is selected
+              const isSelected = colorItem.classList.contains('selected') || 
+                               colorItem.hasAttribute('selected') ||
+                               colorItem.getAttribute('data-selected') === 'true';
+              
+              // Get color value (might be a background color or image)
+              let colorValue = null;
+              
+              // Try to get background color
+              const style = colorItem.getAttribute('style');
+              if (style && style.includes('background-color')) {
+                const bgColorMatch = style.match(/background-color:\s*([^;]+)/);
+                if (bgColorMatch && bgColorMatch[1]) {
+                  colorValue = bgColorMatch[1].trim();
+                }
+              }
+              
+              // If no background color, try to find image
+              if (!colorValue) {
+                const colorImage = colorItem.querySelector('img');
+                if (colorImage) {
+                  colorValue = colorImage.getAttribute('src');
+                }
+              }
+              
+              // Add color to variants
+              result.variants.colors.push({
+                text: colorName,
+                selected: isSelected,
+                value: colorValue
+              });
+              
+              Logger.debug(`Added Nocturne color: ${colorName}, Selected: ${isSelected}`);
+            } catch (e) {
+              Logger.error(`Error processing Nocturne color item: ${e.message}`);
+            }
+          }
+          
+          Logger.info(`✅ Extracted ${result.variants.colors.length} Nocturne colors`);
+        }
+      }
+      
+      // Extract size variants using the dedicated size extractor
+      const sizeResults = extractNocturneSizes();
+      if (sizeResults && sizeResults.sizes && sizeResults.sizes.length > 0) {
+        result.variants.sizes = sizeResults.sizes;
+        Logger.info(`✅ Added ${sizeResults.sizes.length} Nocturne sizes to result`);
+      }
+      
+      // Log the final extraction result
+      Logger.info("✅ Nocturne product extraction completed successfully");
+      return result;
+    } catch (e) {
+      Logger.error(`❌ Error extracting Nocturne product: ${e.message}`);
+      return {
+        isProductPage: true,
+        success: false,
+        url: window.location.href,
+        brand: "Nocturne",
+        extractionMethod: "nocturne-specific",
+        error: e.message
+      };
+    }
+  }
+};
+
 // ==================== Main Product Extractor ====================
 
 // Main product extractor that orchestrates the extraction process
@@ -5975,6 +6370,14 @@ const ProductExtractor = {
         const guessResult = GuessExtractor.extract();
         if (guessResult && guessResult.success) {
           return guessResult;
+        }
+      }
+      
+      if (NocturneExtractor.isSiteNocturne()) {
+        Logger.info("Detected Nocturne site, using Nocturne extractor");
+        const nocturneResult = NocturneExtractor.extract();
+        if (nocturneResult && nocturneResult.success) {
+          return nocturneResult;
         }
       }
       
@@ -6125,8 +6528,32 @@ function detectAndReportProduct(retryCount = 0) {
   Logger.info(`Running product detection (attempt: ${retryCount + 1})`);
 
   try {
-    // Check if we're on the Guess homepage or category page and skip detection
+    // Check if we're on the Nocturne homepage or category page and skip detection
     const url = window.location.href;
+    if (url.includes("nocturne.com.tr")) {
+      // Nocturne product URLs have a pattern with an underscore followed by numeric ID (_XXXXXX)
+      // Also allow query parameters after the ID
+      const nocturneProductPattern = /nocturne\.com\.tr\/.*_\d+($|\?)/;
+      
+      // Skip homepage and category pages
+      const nocturneNonProductPattern = /nocturne\.com\.tr\/(ust-giyim|aksesuar|indirim|giyim|alt-giyim|dis-giyim|plaj-giyim)?$/;
+      
+      // Check if this is NOT a product page
+      if (nocturneNonProductPattern.test(url) || !nocturneProductPattern.test(url)) {
+        Logger.info("Skipping product detection on Nocturne non-product page");
+        if (window.FlutterChannel) {
+          window.FlutterChannel.postMessage(JSON.stringify({
+            isProductPage: false,
+            success: false,
+            url: window.location.href,
+            message: "Skipped detection on Nocturne non-product page"
+          }));
+        }
+        return;
+      }
+    }
+
+    // Check if we're on the Guess homepage or category page and skip detection
     if (url.includes("guess.eu")) {
       // Guess product URLs end with .html
       const guessProductPattern = /guess\.eu\/.*\/.*\.html$/;
@@ -6469,8 +6896,24 @@ function checkForUrlChanges() {
   const currentUrl = window.location.href;
   
   if (currentUrl !== lastUrl) {
-    Logger.info(`URL changed to: ${currentUrl}`);
+    Logger.debug(`URL changed: ${lastUrl} -> ${currentUrl}`);
     lastUrl = currentUrl;
+    
+    // Skip detection on Nocturne non-product pages
+    if (currentUrl.includes("nocturne.com.tr")) {
+      // Nocturne product URLs have a pattern with an underscore followed by numeric ID (_XXXXXX)
+      // Also allow query parameters after the ID
+      const nocturneProductPattern = /nocturne\.com\.tr\/.*_\d+($|\?)/;
+      
+      // Skip homepage and category pages
+      const nocturneNonProductPattern = /nocturne\.com\.tr\/(ust-giyim|aksesuar|indirim|giyim|alt-giyim|dis-giyim|plaj-giyim)?$/;
+      
+      // Check if this is NOT a product page
+      if (nocturneNonProductPattern.test(currentUrl) || !nocturneProductPattern.test(currentUrl)) {
+        Logger.debug("DOM changes on Nocturne non-product page - skipping detection");
+        return;
+      }
+    }
     
     // Skip detection on Pandora non-product pages
     if (currentUrl.includes("pandora.net")) {
@@ -6536,6 +6979,22 @@ const observer = new MutationObserver((mutations) => {
   observerDebounceTimer = setTimeout(() => {
     // Skip detection on Guess non-product pages
     const currentUrl = window.location.href;
+    
+    // Skip detection on Nocturne non-product pages
+    if (currentUrl.includes("nocturne.com.tr")) {
+      // Nocturne product URLs have a pattern with an underscore followed by numeric ID (_XXXXXX)
+      // Also allow query parameters after the ID
+      const nocturneProductPattern = /nocturne\.com\.tr\/.*_\d+($|\?)/;
+      
+      // Skip homepage and category pages
+      const nocturneNonProductPattern = /nocturne\.com\.tr\/(ust-giyim|aksesuar|indirim|giyim|alt-giyim|dis-giyim|plaj-giyim)?$/;
+      
+      // Check if this is NOT a product page
+      if (nocturneNonProductPattern.test(currentUrl) || !nocturneProductPattern.test(currentUrl)) {
+        Logger.debug("DOM changes on Nocturne non-product page - skipping detection");
+        return;
+      }
+    }
     
     // Skip detection on Pandora non-product pages
     if (currentUrl.includes("pandora.net")) {
