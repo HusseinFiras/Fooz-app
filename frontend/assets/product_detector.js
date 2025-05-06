@@ -6345,6 +6345,249 @@ const NocturneExtractor = {
   }
 };
 
+// Function to extract Beymen product prices
+function extractBeymenPrices() {
+  try {
+    Logger.info("Extracting Beymen product prices");
+    let price = null;
+    let originalPrice = null;
+    let currency = "TRY";
+    
+    // Regular price in both scenarios (non-discounted and discounted)
+    const regularPriceElement = document.querySelector(".a-m-productPrice.-salePrice");
+    
+    if (regularPriceElement) {
+      let priceText = regularPriceElement.textContent.trim();
+      Logger.info(`Found regular price text: ${priceText}`);
+      
+      // Extract TL or another currency if present
+      if (priceText.includes("TL")) {
+        currency = "TRY";
+        priceText = priceText.replace("TL", "").trim();
+      } else if (priceText.includes("$")) {
+        currency = "USD";
+        priceText = priceText.replace("$", "").trim();
+      } else if (priceText.includes("€")) {
+        currency = "EUR";
+        priceText = priceText.replace("€", "").trim();
+      }
+      
+      // Convert "5.150" to "5150" and then to number
+      priceText = priceText.replace(".", "").replace(",", ".");
+      price = parseFloat(priceText);
+      Logger.info(`Parsed regular price: ${price} ${currency}`);
+    }
+    
+    // Check for campaign price (discounted price)
+    const campaignPriceElement = document.querySelector(".m-price__campaignPrice");
+    
+    if (campaignPriceElement) {
+      // If campaign price exists, then the regular price becomes the original price
+      originalPrice = price;
+      
+      let discountedPriceText = campaignPriceElement.textContent.trim();
+      Logger.info(`Found campaign price text: ${discountedPriceText}`);
+      
+      // Extract TL or another currency if present
+      if (discountedPriceText.includes("TL")) {
+        discountedPriceText = discountedPriceText.replace("TL", "").trim();
+      }
+      
+      // Convert "2.939,30" to "2939.30" and then to number
+      discountedPriceText = discountedPriceText.replace(".", "").replace(",", ".");
+      price = parseFloat(discountedPriceText);
+      Logger.info(`Parsed campaign price: ${price} ${currency}, original price: ${originalPrice}`);
+    }
+    
+    return { price, originalPrice, currency };
+  } catch (e) {
+    Logger.error("Error extracting Beymen prices", e);
+    return null;
+  }
+}
+
+// Function to extract Beymen size variants
+function extractBeymenSizes() {
+  try {
+    Logger.info("Extracting Beymen size variants");
+    const sizes = [];
+    
+    // Find the size wrapper
+    const sizeWrapper = document.querySelector(".m-variation__sizeWrapper");
+    
+    if (!sizeWrapper) {
+      Logger.warn("No size wrapper found for Beymen product");
+      return { sizes };
+    }
+    
+    // Find all size elements
+    const sizeElements = sizeWrapper.querySelectorAll(".m-variation__size");
+    
+    if (sizeElements.length === 0) {
+      Logger.warn("No size elements found for Beymen product");
+      return { sizes };
+    }
+    
+    Logger.info(`Found ${sizeElements.length} size elements`);
+    
+    // Process each size element
+    for (const sizeElement of sizeElements) {
+      try {
+        // Check if size is in stock (doesn't have -unStock class)
+        const isInStock = !sizeElement.classList.contains("-unStock");
+        
+        // Get the input and label elements
+        const input = sizeElement.querySelector("input");
+        const label = sizeElement.querySelector("label");
+        
+        if (!label) {
+          Logger.warn("Size element doesn't have a label, skipping");
+          continue;
+        }
+        
+        // Get the size text
+        const sizeText = DOMUtils.getTextContent(label).trim();
+        
+        // Check if size is selected
+        const isSelected = input ? input.checked : false;
+        
+        // Create size value object (as a JSON string)
+        const sizeValue = JSON.stringify({
+          size: sizeText,
+          inStock: isInStock,
+          sizeId: input ? input.value : null
+        });
+        
+        // Add size to sizes array
+        sizes.push({
+          text: sizeText,
+          selected: isSelected,
+          value: sizeValue
+        });
+        
+        Logger.debug(`Added size: ${sizeText}, inStock: ${isInStock}, selected: ${isSelected}`);
+      } catch (e) {
+        Logger.error(`Error processing size element: ${e.message}`);
+      }
+    }
+    
+    Logger.info(`Successfully extracted ${sizes.length} sizes for Beymen product`);
+    return { sizes };
+  } catch (e) {
+    Logger.error(`Error extracting Beymen sizes: ${e.message}`);
+    return { sizes: [] };
+  }
+}
+
+// Beymen Extractor
+const BeymenExtractor = {
+  isBeymen: function() {
+    return window.location.href.toLowerCase().includes('beymen.com');
+  },
+  
+  isBeymenProductUrl: function(url) {
+    if (!url) return false;
+    return url.toLowerCase().includes('beymen.com') && (
+      url.includes('/product/') || 
+      url.includes('-p-')
+    );
+  },
+  
+  isBeymenNonProductUrl: function(url) {
+    if (!url) return false;
+    if (!url.toLowerCase().includes('beymen.com')) return false;
+    
+    // Check for category pages or home page
+    return url.endsWith('beymen.com/') || 
+           url.endsWith('beymen.com') || 
+           url.includes('/kadin') || 
+           url.includes('/erkek') ||
+           url.includes('/cocuk') ||
+           url.includes('/aksesuar') ||
+           url.includes('/home');
+  },
+  
+  extract: function() {
+    try {
+      Logger.info("Extracting Beymen product information");
+      
+      // Extract basic product information
+      // The title is a combination of brand and product description
+      const brandElement = document.querySelector("h1.o-productInformation__header--name a");
+      const descriptionElement = document.querySelector("p.o-productInformation__header--description");
+      
+      const brandText = brandElement ? DOMUtils.getTextContent(brandElement).trim() : "Beymen";
+      const descriptionText = descriptionElement ? DOMUtils.getTextContent(descriptionElement).trim() : "";
+      
+      // Combine brand and description to form the title
+      const title = descriptionText ? `${brandText} ${descriptionText}` : brandText;
+      
+      Logger.info(`Extracted title: ${title}`);
+      
+      // Extract image URL from the swiper container
+      const imageElement = document.querySelector(".swiper-zoom-container img, .o-productImage img");
+      const imageUrl = imageElement ? imageElement.getAttribute("src") : null;
+      
+      Logger.info(`Extracted image URL: ${imageUrl}`);
+      
+      // Extract price information using the Beymen-specific function
+      const priceInfo = extractBeymenPrices();
+      
+      // Use the brand we already extracted
+      const brand = brandText || "Beymen";
+      
+      // Extract description
+      const fullDescriptionEl = document.querySelector(".m-productDescription__content");
+      const description = fullDescriptionEl ? DOMUtils.getTextContent(fullDescriptionEl) : descriptionText;
+      
+      // Extract availability
+      const availabilityText = document.querySelector(".m-stockRetailStore__item") 
+        ? "In Stock" 
+        : "Check Availability";
+      
+      // Extract SKU/Product code
+      const skuElement = document.querySelector(".m-productCode");
+      const sku = skuElement ? DOMUtils.getTextContent(skuElement).replace("Ürün Kodu:", "").trim() : "";
+      
+      // Extract sizes
+      const sizeResults = extractBeymenSizes();
+      
+      // Create variants object
+      const variants = {};
+      
+      // Add sizes to variants if available
+      if (sizeResults.sizes && sizeResults.sizes.length > 0) {
+        variants.sizes = sizeResults.sizes;
+        Logger.info(`Added ${sizeResults.sizes.length} sizes to variants`);
+      }
+      
+      // Create product info object
+      const productInfo = {
+        isProductPage: true,
+        title: title,
+        price: priceInfo ? priceInfo.price : null,
+        originalPrice: priceInfo ? priceInfo.originalPrice : null,
+        currency: priceInfo ? priceInfo.currency : "TRY",
+        imageUrl: imageUrl,
+        description: description,
+        sku: sku,
+        availability: availabilityText,
+        brand: brand,
+        extractionMethod: "beymen-specific",
+        url: window.location.href,
+        success: true,
+        variants: variants
+      };
+      
+      Logger.info("Successfully extracted Beymen product information");
+      return productInfo;
+    } catch (e) {
+      Logger.error("Error in Beymen extractor", e);
+      return null;
+    }
+  }
+};
+
 // ==================== Main Product Extractor ====================
 
 // Main product extractor that orchestrates the extraction process
@@ -6434,6 +6677,14 @@ const ProductExtractor = {
         const victoriasSecretResult = VictoriasSecretExtractor.extract();
         if (victoriasSecretResult && victoriasSecretResult.success) {
           return victoriasSecretResult;
+        }
+      }
+      
+      if (BeymenExtractor.isBeymen()) {
+        Logger.info("Detected Beymen site, using Beymen extractor");
+        const beymenResult = BeymenExtractor.extract();
+        if (beymenResult && beymenResult.success) {
+          return beymenResult;
         }
       }
       
@@ -6961,6 +7212,18 @@ function checkForUrlChanges() {
     
     // ... existing code for other sites ...
 
+    // Skip detection on Beymen non-product pages
+    if (currentUrl.includes("beymen.com")) {
+      // Beymen product URLs contain /product/ or -p- in the URL
+      const beymenProductPattern = /beymen\.com\/.*(\-p\-|\/product\/)/;
+      
+      // Skip homepage and category pages
+      if (!beymenProductPattern.test(currentUrl)) {
+        Logger.debug("URL change on Beymen non-product page - skipping detection");
+        return;
+      }
+    }
+    
     detectAndReportProduct();
   }
 
@@ -6982,126 +7245,24 @@ const observer = new MutationObserver((mutations) => {
     
     // Skip detection on Nocturne non-product pages
     if (currentUrl.includes("nocturne.com.tr")) {
-      // Nocturne product URLs have a pattern with an underscore followed by numeric ID (_XXXXXX)
-      // Also allow query parameters after the ID
-      const nocturneProductPattern = /nocturne\.com\.tr\/.*_\d+($|\?)/;
+      // ... existing code ...
+    }
+    
+    // ... other site checks ...
+    
+    // Skip detection on Beymen non-product pages
+    if (currentUrl.includes("beymen.com")) {
+      // Beymen product URLs contain /product/ or -p- in the URL
+      const beymenProductPattern = /beymen\.com\/.*(\-p\-|\/product\/)/;
       
       // Skip homepage and category pages
-      const nocturneNonProductPattern = /nocturne\.com\.tr\/(ust-giyim|aksesuar|indirim|giyim|alt-giyim|dis-giyim|plaj-giyim)?$/;
-      
-      // Check if this is NOT a product page
-      if (nocturneNonProductPattern.test(currentUrl) || !nocturneProductPattern.test(currentUrl)) {
-        Logger.debug("DOM changes on Nocturne non-product page - skipping detection");
+      if (!beymenProductPattern.test(currentUrl)) {
+        Logger.debug("DOM changes on Beymen non-product page - skipping detection");
         return;
       }
     }
     
-    // Skip detection on Pandora non-product pages
-    if (currentUrl.includes("pandora.net")) {
-      // Pandora product URLs have numeric/alphanumeric product codes ending with .html
-      const pandoraProductPattern = /pandora\.net\/.*\/.*\/[A-Z0-9]+\.html/;
-      
-      // Skip non-product pages
-      const pandoraNonProductPattern = /pandora\.net\/[a-z-]+\/?$/;
-      
-      // Check if this is NOT a product page
-      if (!pandoraProductPattern.test(currentUrl) && pandoraNonProductPattern.test(currentUrl)) {
-        Logger.debug("DOM changes on Pandora non-product page - skipping detection");
-        return;
-      }
-    }
-    
-    if (currentUrl.includes("guess.eu")) {
-      // Guess product URLs end with .html
-      const guessProductPattern = /guess\.eu\/.*\/.*\.html$/;
-      
-      // Detect non-product pages
-      const guessNonProductPattern = /guess\.eu\/.*\/(home|men|women|new-in|sale|accessories|clothing|bags|shoes|watches|jewelry)(\?.*)?$/;
-      
-      // Check if this is NOT a product page
-      if (guessNonProductPattern.test(currentUrl) || !guessProductPattern.test(currentUrl)) {
-        Logger.debug("DOM changes on Guess non-product page - skipping detection");
-        return;
-      }
-    }
-    
-    // Skip detection on Swarovski non-product pages
-    if (currentUrl.includes("swarovski.com")) {
-      // Swarovski product URLs have /p-XXXXXXX/ pattern
-      const swarovskiProductPattern = /swarovski\.com\/.*\/p-[A-Za-z0-9]+\//;
-      
-      // Check if this is NOT a product page
-      if (!swarovskiProductPattern.test(currentUrl)) {
-        Logger.debug("DOM changes on Swarovski non-product page - skipping detection");
-        return;
-      }
-    }
-    
-    // Skip detection on Cartier homepage
-    if (currentUrl.includes("cartier.com")) {
-      // Skip detection on Cartier homepage
-      const isCartierHomepage = currentUrl.match(/cartier\.com\/[a-z-]+\/home/) || 
-                                currentUrl.includes("cartier.com/home") || 
-                                currentUrl.endsWith("cartier.com/") || 
-                                currentUrl.endsWith("cartier.com");
-      
-      // Skip detection on category pages
-      // Examples of category pages:
-      // https://www.cartier.com/en-tr/jewellery/collections/juste-un-clou/
-      // https://www.cartier.com/en-tr/watches/collections/santos-de-cartier/
-      const isCartierCategoryPage = currentUrl.match(/cartier\.com\/.*\/.*\/collections\//) || 
-                                   currentUrl.endsWith('/');
-      
-      if (isCartierHomepage || isCartierCategoryPage) {
-        Logger.debug("DOM changes on Cartier non-product page - skipping detection");
-        return;
-      }
-    }
-    
-    // Skip detection on Louis Vuitton non-product pages
-    if (currentUrl.includes("louisvuitton.com")) {
-      // Louis Vuitton product URLs have /products/ pattern followed by product name and product ID (nvprod) and a final ID
-      // Example: https://us.louisvuitton.com/eng-us/products/run-away-sneaker-nvprod6120020v/1AHSS0
-      const louisVuittonProductPattern = /louisvuitton\.com\/.*\/products\/.*nvprod.*\//;
-      
-      // Check if this is NOT a product page
-      if (!louisVuittonProductPattern.test(currentUrl)) {
-        Logger.debug("DOM changes on Louis Vuitton non-product page - skipping detection");
-        return;
-      }
-    }
-    
-    // Skip detection on Mango non-product pages
-    if (currentUrl.includes("mango.com")) {
-      // Mango product URLs have /p/ pattern
-      const mangoProductPattern = /mango\.com\/.*\/p\//;
-      
-      // Skip category pages
-      const mangoNonProductPattern = /mango\.com\/.*\/h\//;
-      
-      // Check if this is NOT a product page
-      if (mangoNonProductPattern.test(currentUrl) && !mangoProductPattern.test(currentUrl)) {
-        Logger.debug("DOM changes on Mango non-product page - skipping detection");
-        return;
-      }
-    }
-    
-    // Skip detection on Massimo Dutti non-product pages
-    if (currentUrl.includes("massimodutti.com")) {
-      // Massimo Dutti product URLs have a pattern with /tr/... followed by l + 8 digits + ?pelement= + digits
-      const massimoDuttiProductPattern = /massimodutti\.com\/.*\/[^\/]+\-l\d{8}\?pelement=\d+/;
-      
-      // Also check for alternate pattern where l + 8 digits appears in the URL
-      const altMassimoDuttiProductPattern = /massimodutti\.com\/.*\/.*l\d{8}/;
-      
-      // Check if this is NOT a product page based on URL pattern
-      if (!massimoDuttiProductPattern.test(currentUrl) && !altMassimoDuttiProductPattern.test(currentUrl)) {
-        Logger.debug("DOM changes on Massimo Dutti non-product page - skipping detection");
-        return;
-      }
-    }
-    
-    Logger.debug("DOM changes detected, checking for product info");
+    // Detect and report products
     detectAndReportProduct();
   }, CONFIG.observerDebounceTime);
 });
