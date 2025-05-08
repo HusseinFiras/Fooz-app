@@ -8,10 +8,13 @@ import '../models/variant_option.dart'; // Added import
 import '../utils/debug_utils.dart';
 
 class WebViewService {
-  final WebViewController controller = WebViewController();
+  // Create controller when needed instead of as a final property
+  late WebViewController controller;
   final Function(bool) onLoadingStateChanged;
   final Function(ProductInfo) onProductInfoChanged;
   final Function(String) onUrlChanged;
+  // Flag to track if the WebView has been initialized
+  bool _isInitialized = false;
 
   // Add a property to store the last detected product info
   ProductInfo? _lastProductInfo;
@@ -20,9 +23,18 @@ class WebViewService {
     required this.onLoadingStateChanged,
     required this.onProductInfoChanged,
     required this.onUrlChanged,
-  });
+  }) {
+    // Create the controller in the constructor
+    controller = WebViewController();
+  }
 
   void initializeWebView(String initialUrl) {
+    // Prevent multiple initialization
+    if (_isInitialized) {
+      loadUrl(initialUrl);
+      return;
+    }
+
     DebugLog.i('Initializing WebView with URL: $initialUrl',
         category: DebugLog.WEBVIEW);
 
@@ -61,6 +73,15 @@ class WebViewService {
 
     // Add custom JavaScript to filter console logs
     _injectConsoleFilter();
+    
+    // Mark as initialized
+    _isInitialized = true;
+  }
+
+  // Method to dispose WebView resources
+  void dispose() {
+    _isInitialized = false;
+    _lastProductInfo = null;
   }
 
   // Inject code to filter WebView console logs

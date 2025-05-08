@@ -18,7 +18,7 @@ class BrandsScreen extends StatefulWidget {
   _BrandsScreenState createState() => _BrandsScreenState();
 }
 
-class _BrandsScreenState extends State<BrandsScreen> with TickerProviderStateMixin {
+class _BrandsScreenState extends State<BrandsScreen> with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   final DataService _dataService = DataService();
   final ScrollController _scrollController = ScrollController();
 
@@ -30,11 +30,38 @@ class _BrandsScreenState extends State<BrandsScreen> with TickerProviderStateMix
   
   // Brand data for different categories - populated from DataService in initState
   late List<List<Map<String, dynamic>>> _brandsByCategory;
+  bool _imagesPreloaded = false;
+  
+  @override
+  bool get wantKeepAlive => true; // Keep this widget alive when navigating away
   
   @override
   void initState() {
     super.initState();
     _initializeBrandCategories();
+  }
+  
+  // Add didChangeDependencies method for context-dependent operations
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Move precaching here where context is available
+    _precacheImages();
+  }
+  
+  // Precache all brand logos to prevent reloading
+  Future<void> _precacheImages() async {
+    if (_imagesPreloaded) return;
+    
+    for (var brandList in _brandsByCategory) {
+      for (var brand in brandList) {
+        precacheImage(AssetImage(brand['logoAsset']), context);
+      }
+    }
+    
+    setState(() {
+      _imagesPreloaded = true;
+    });
   }
   
   // Initialize brand categories using retail sites from DataService
@@ -138,6 +165,8 @@ class _BrandsScreenState extends State<BrandsScreen> with TickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    
     return Scaffold(
       backgroundColor: LuxuryTheme.neutralOffWhite,
       appBar: AppBar(

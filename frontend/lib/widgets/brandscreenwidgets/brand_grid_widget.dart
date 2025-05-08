@@ -4,6 +4,44 @@ import 'package:flutter/services.dart';
 import '../../services/data_service.dart';
 import '../../constants/theme_constants.dart';
 
+class CachedBrandLogo extends StatelessWidget {
+  final String assetPath;
+  final String brandName;
+  
+  const CachedBrandLogo({
+    Key? key, 
+    required this.assetPath,
+    required this.brandName,
+  }) : super(key: key);
+  
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      // Special handling for Miu Miu - try both possible filenames
+      brandName == 'Miu Miu' 
+          ? 'assets/images/brands/miumiu.png'
+          : assetPath,
+      // Use cacheWidth to optimize memory usage
+      cacheWidth: 200,
+      // Set gapless playback to true to prevent flicker during reload
+      gaplessPlayback: true,
+      errorBuilder: (context, error, stackTrace) {
+        // Fallback to text when image is not available
+        return Text(
+          brandName,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+            fontFamily: 'Lato',
+            color: LuxuryTheme.textCharcoal,
+          ),
+        );
+      },
+    );
+  }
+}
+
 class BrandGridWidget extends StatelessWidget {
   final List<Map<String, dynamic>> brands;
   final Function(BuildContext, String) onBrandTapped;
@@ -26,6 +64,8 @@ class BrandGridWidget extends StatelessWidget {
           mainAxisSpacing: 4,  // Slightly increased spacing
         ),
         padding: EdgeInsets.all(4),
+        // Use physics to keep scroll position
+        physics: AlwaysScrollableScrollPhysics(),
         itemCount: brands.length,
         itemBuilder: (context, index) {
           final brand = brands[index];
@@ -57,24 +97,9 @@ class BrandGridWidget extends StatelessWidget {
                     child: Padding(
                       padding: const EdgeInsets.all(12.0),
                       child: brand['logoAsset'] != null && brand['logoAsset'].toString().isNotEmpty
-                          ? Image.asset(
-                              // Special handling for Miu Miu - try both possible filenames
-                              brandName == 'Miu Miu' 
-                                  ? 'assets/images/brands/miumiu.png'  // Try with underscore
-                                  : brand['logoAsset'],
-                              errorBuilder: (context, error, stackTrace) {
-                                // Fallback to text when image is not available
-                                return Text(
-                                  brandName,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                    fontFamily: 'Lato',
-                                    color: LuxuryTheme.textCharcoal,
-                                  ),
-                                );
-                              },
+                          ? CachedBrandLogo(
+                              assetPath: brand['logoAsset'],
+                              brandName: brandName,
                             )
                           : Text(
                               brandName,

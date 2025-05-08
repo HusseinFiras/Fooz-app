@@ -227,7 +227,7 @@ class ProductInfo {
   String formatPrice(double? price, String? currency) {
     if (price == null) return '';
 
-    final formatter = NumberFormat('#,##0.00', 'tr_TR');
+    final formatter = NumberFormat('#,##0.000', 'tr_TR');
     String symbol = '₺';
 
     switch (currency) {

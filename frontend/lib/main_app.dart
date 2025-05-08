@@ -14,7 +14,7 @@ class MainApp extends StatefulWidget {
   _MainAppState createState() => _MainAppState();
 }
 
-class _MainAppState extends State<MainApp> {
+class _MainAppState extends State<MainApp> with AutomaticKeepAliveClientMixin {
   int _selectedIndex = 0;
   
   // Define the screens that will appear in the bottom navigation
@@ -31,11 +31,21 @@ class _MainAppState extends State<MainApp> {
       _selectedIndex = index;
     });
   }
+  
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    
     return Scaffold(
-      body: _screens[_selectedIndex],
+      // Use IndexedStack instead of directly showing one screen
+      // This preserves the state of all screens even when not visible
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: _screens,
+      ),
       // Wrap NavigationBar with SafeArea to respect device safe area
       bottomNavigationBar: Container(
         decoration: BoxDecoration(

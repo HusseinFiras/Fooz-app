@@ -241,7 +241,7 @@ class _AtillaKaratVideoSectionState extends State<AtillaKaratVideoSection> {
                     
                     // Right side for video
                     Expanded(
-                      flex: 4,
+                      flex: 3,
                       child: ClipRRect(
                         borderRadius: BorderRadius.only(
                           topRight: Radius.circular(LuxuryTheme.largeCardRadius),

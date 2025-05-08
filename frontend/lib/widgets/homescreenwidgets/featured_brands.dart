@@ -16,34 +16,39 @@ class _FeaturedBrandsState extends State<FeaturedBrands> {
   final DataService _dataService = DataService();
 
   // Featured brand circles with site indices from DataService
-  final List<Map<String, dynamic>> _featuredBrands = [
-    {
-      'color': Colors.black,
-      'gradient': [Colors.white, Colors.white],
-      'hasLogo': true,
-      'logoAsset': 'assets/images/miumiu_logo.jpeg',
-      'paddingValue': 10.0,
-      'siteIndex': 11, // Index of Miu Miu in the retailSites list
-    },
-    {
-      
-      'color': Colors.black,
-      'gradient': [Colors.white, Colors.white],
-      'hasLogo': true,
-      'logoAsset': 'assets/images/sandro_logo.png',
-      'paddingValue': 10.0,
-      'siteIndex': 19, // Index of Sandro in the retailSites list
-    },
-    {
-    
-      'color': Colors.black,
-      'gradient': [Colors.white, Colors.white],
-      'hasLogo': true,
-      'logoAsset': 'assets/images/Beymen_logo.png',
-      'paddingValue': 8.0,
-      'siteIndex': 14, // Index of Beymen in the retailSites list
-    },
-  ];
+  late final List<Map<String, dynamic>> _featuredBrands;
+  
+  @override
+  void initState() {
+    super.initState();
+    // Initialize featured brands with correct site indices
+    _featuredBrands = [
+      {
+        'color': Colors.black,
+        'gradient': [Colors.white, Colors.white],
+        'hasLogo': true,
+        'logoAsset': 'assets/images/miumiu_logo.jpeg',
+        'paddingValue': 10.0,
+        'siteIndex': _findSiteIndexByName('Miu Miu'), // Dynamically find the correct index
+      },
+      {
+        'color': Colors.black,
+        'gradient': [Colors.white, Colors.white],
+        'hasLogo': true,
+        'logoAsset': 'assets/images/sandro_logo.png',
+        'paddingValue': 10.0,
+        'siteIndex': _findSiteIndexByName('Sandro'), // Dynamically find the correct index
+      },
+      {
+        'color': Colors.black,
+        'gradient': [Colors.white, Colors.white],
+        'hasLogo': true,
+        'logoAsset': 'assets/images/Beymen_logo.png',
+        'paddingValue': 8.0,
+        'siteIndex': _findSiteIndexByName('Beymen'), // Dynamically find the correct index
+      },
+    ];
+  }
 
   void _navigateToSite(BuildContext context, int siteIndex) {
     HapticFeedback.mediumImpact();
@@ -68,7 +73,7 @@ class _FeaturedBrandsState extends State<FeaturedBrands> {
     );
   }
 
-  // Alternative method to find the site index by name
+  // Method to find the site index by name
   int _findSiteIndexByName(String brandName) {
     for (int i = 0; i < _dataService.retailSites.length; i++) {
       if (_dataService.retailSites[i]['name']!.toLowerCase() == brandName.toLowerCase()) {

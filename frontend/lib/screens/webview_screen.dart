@@ -72,6 +72,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
   void dispose() {
     _loadingTimer?.cancel();
     ImageCacheService().clearCache();
+    // Dispose WebViewService to prevent JavaScript channel issues
+    _webViewService.dispose();
     super.dispose();
   }
 

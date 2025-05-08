@@ -84,6 +84,10 @@ void main() {
   // Initialize binding first
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Configure image cache for better performance
+  PaintingBinding.instance.imageCache.maximumSize = 200; // Default is 100
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 100 * 1024 * 1024; // 100 MB, default is 10 MB
+
   // Initialize clean debugging
   initializeDebugging();
 
