@@ -336,10 +336,17 @@ class WebViewService {
                     );
                     
                     for (const sizeItem of sizeItems) {
-                      // Check if enabled (in stock)
-                      const isEnabled = !sizeItem.classList.contains(
-                        "size-selector-sizes-size--disabled"
-                      );
+                      // Check if this size is unavailable (out of stock)
+                      const isUnavailable = 
+                          sizeItem.classList.contains("size-selector-sizes-size--disabled") || 
+                          sizeItem.classList.contains("size-selector-sizes__size--disabled") ||
+                          sizeItem.classList.contains("size-selector-sizes-size--unavailable") ||
+                          sizeItem.classList.contains("size-selector-sizes__size--unavailable");
+                      
+                      // Also check for data-qa-action attribute on the button
+                      const sizeButton = sizeItem.querySelector("button.size-selector-sizes-size__button");
+                      const dataQaAction = sizeButton ? sizeButton.getAttribute("data-qa-action") : null;
+                      const isOutOfStock = dataQaAction === "size-out-of-stock";
                       
                       // Get size label
                       const sizeLabel = sizeItem.querySelector(
@@ -356,6 +363,9 @@ class WebViewService {
                         sizeItem.classList.contains("size-selector-sizes-size--selected") ||
                         !!sizeItem.querySelector('[aria-selected="true"]');
                       
+                      // Final availability status based on all checks
+                      const isEnabled = !isUnavailable && !isOutOfStock;
+                      
                       // Create value object with inStock info
                       const valueObj = {
                         size: sizeText,
@@ -368,6 +378,67 @@ class WebViewService {
                         selected: isSelected,
                         value: JSON.stringify(valueObj),
                       });
+                      
+                      console.log("Extracted Zara size: " + sizeText + ", in stock: " + isEnabled + ", selected: " + isSelected);
+                    }
+                  }
+                  
+                  // Try for new size selector structure if available
+                  if (results.sizes.length === 0) {
+                    const newSizeSelector = ".new-size-selector";
+                    const newSizeContainer = document.querySelector(newSizeSelector);
+                    
+                    if (newSizeContainer) {
+                      const sizeItems = newSizeContainer.querySelectorAll(
+                        ".size-selector-sizes__size"
+                      );
+                      
+                      for (const sizeItem of sizeItems) {
+                        // More comprehensive check for unavailable sizes
+                        const isUnavailable = 
+                            sizeItem.classList.contains("size-selector-sizes-size--disabled") || 
+                            sizeItem.classList.contains("size-selector-sizes__size--disabled") ||
+                            sizeItem.classList.contains("size-selector-sizes-size--unavailable") ||
+                            sizeItem.classList.contains("size-selector-sizes__size--unavailable");
+                        
+                        // Also check data-qa-action attribute
+                        const sizeButton = sizeItem.querySelector("button.size-selector-sizes-size__button");
+                        const dataQaAction = sizeButton ? sizeButton.getAttribute("data-qa-action") : null;
+                        const isOutOfStock = dataQaAction === "size-out-of-stock";
+                        
+                        // Get size label
+                        const sizeLabel = sizeItem.querySelector(
+                          ".size-selector-sizes-size__label"
+                        );
+                        if (!sizeLabel) continue;
+                        
+                        const sizeText = sizeLabel.textContent.trim();
+                        if (!sizeText) continue;
+                        
+                        // Check if selected
+                        const isSelected =
+                          sizeItem.classList.contains("selected") ||
+                          sizeItem.classList.contains("size-selector-sizes-size--selected") ||
+                          !!sizeItem.querySelector('[aria-selected="true"]');
+                        
+                        // Final availability status based on all checks
+                        const isEnabled = !isUnavailable && !isOutOfStock;
+                        
+                        // Create value object with inStock info
+                        const valueObj = {
+                          size: sizeText,
+                          inStock: isEnabled,
+                        };
+                        
+                        // Add to results
+                        results.sizes.push({
+                          text: sizeText,
+                          selected: isSelected,
+                          value: JSON.stringify(valueObj),
+                        });
+                        
+                        console.log("Extracted Zara size (new selector): " + sizeText + ", in stock: " + isEnabled + ", selected: " + isSelected);
+                      }
                     }
                   }
                 } catch(e) {

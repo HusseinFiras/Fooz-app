@@ -923,6 +923,14 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
     final isPandora = widget.productInfo.brand?.toLowerCase() == 'pandora' ||
         widget.productInfo.url.toLowerCase().contains('pandora.net');
     
+    // Check if Zara product for specific debugging
+    final isZara = widget.productInfo.brand?.toLowerCase() == 'zara' ||
+        widget.productInfo.url.toLowerCase().contains('zara.com');
+    
+    if (isZara) {
+      debugPrint('[PD] Zara product detected, logging size availability details:');
+    }
+    
     // Filter out nonsensical or placeholder options
     final filteredOptions = sizeOptions.where((option) {
       final String lowerText = option.text.toLowerCase().trim();
@@ -958,6 +966,31 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
       }
     }
 
+    // Dump all size options with their raw data for debugging
+    if (isZara) {
+      for (final option in filteredOptions) {
+        debugPrint('[PD] Zara size ${option.text} - raw value: ${option.value}');
+        final isInStockValue = option.isInStock; // Use the getter directly
+        debugPrint('[PD] Zara size ${option.text} - isInStock: $isInStockValue');
+        
+        // Check if we can parse the value JSON
+        if (option.value != null) {
+          try {
+            final Map<String, dynamic> valueData = jsonDecode(option.value!);
+            final jsonInStock = valueData['inStock'] ?? true;
+            debugPrint('[PD] Parsed JSON for size ${option.text}: inStock=$jsonInStock');
+            
+            // Check for discrepancy
+            if (isInStockValue != jsonInStock) {
+              debugPrint('[PD] ⚠️ Discrepancy for size ${option.text}: getter=$isInStockValue, parsed=$jsonInStock');
+            }
+          } catch (e) {
+            debugPrint('[PD] Failed to parse JSON for size ${option.text}: $e');
+          }
+        }
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -987,12 +1020,14 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
           spacing: 8,
           runSpacing: 8,
           children: filteredOptions.map((option) {
-            // Parse size information from value
-            bool isInStock = true; // Default to true unless explicitly marked false
+            // IMPORTANT CHANGE: For Zara products, use the isInStock getter directly
+            // instead of trying to parse the JSON again, which could lead to inconsistencies
+            bool isInStock = isZara ? option.isInStock : true;
             String? sizeValue;
             String? sizeAttr;
             
-            if (option.value != null) {
+            // For non-Zara products, or as a fallback, still parse the JSON
+            if (!isZara && option.value != null) {
               try {
                 // Parse the JSON value
                 final valueMap = jsonDecode(option.value!) as Map<String, dynamic>;
@@ -1012,6 +1047,11 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                 // If parse fails, assume it's in stock
                 debugPrint('[PD] Error parsing size value: $e');
               }
+            }
+
+            // For Zara, log the final decision about size availability
+            if (isZara) {
+              debugPrint('[PD] Zara size ${option.text}: UI will show as ${isInStock ? "IN STOCK" : "OUT OF STOCK"}');
             }
 
             final bool isSelected = option.text == _selectedSizeText;
@@ -1180,6 +1220,33 @@ class _ProductDetailsBottomSheetState extends State<ProductDetailsBottomSheet> {
                       ),
                     ),
                   ],
+                ),
+              ],
+            ),
+          ),
+        
+        // For Zara, add an out of stock indicator explanation regardless
+        if (isZara) 
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade400,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                SizedBox(width: 4),
+                Text(
+                  'Out of stock',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade700,
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
               ],
             ),

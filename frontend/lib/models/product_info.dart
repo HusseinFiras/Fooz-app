@@ -188,6 +188,26 @@ class ProductInfo {
         json['brand'] = 'Stradivarius';
       }
     }
+    
+    // Special handling for Louis Vuitton products
+    bool isLVProduct = false;
+    if (json.containsKey('url')) {
+      String url = json['url'] as String;
+      isLVProduct = url.toLowerCase().contains('louisvuitton.com');
+
+      if (isLVProduct) {
+        // Force set the brand to Louis Vuitton if detected from URL
+        if (!json.containsKey('brand')) {
+          json['brand'] = 'Louis Vuitton';
+        }
+        
+        // Force set the currency to USD for US Louis Vuitton site
+        if (url.toLowerCase().contains('us.louisvuitton.com') || 
+            url.toLowerCase().contains('louisvuitton.com/eng-us')) {
+          json['currency'] = 'USD';
+        }
+      }
+    }
 
     // Create the ProductInfo with properly processed variants
     final result = ProductInfo(
@@ -224,29 +244,48 @@ class ProductInfo {
 
     return result;
   }
+  
   String formatPrice(double? price, String? currency) {
     if (price == null) return '';
 
-    final formatter = NumberFormat('#,##0.000', 'tr_TR');
-    String symbol = '₺';
-
+    String symbol;
+    NumberFormat formatter;
+    
     switch (currency) {
       case 'USD':
         symbol = '\$';
-        break;
+        formatter = NumberFormat.currency(
+          locale: 'en_US',
+          symbol: '',
+          decimalDigits: 2,
+        );
+        return '$symbol${formatter.format(price)}';
       case 'EUR':
         symbol = '€';
-        break;
+        formatter = NumberFormat.currency(
+          locale: 'de_DE',
+          symbol: '',
+          decimalDigits: 2,
+        );
+        return '${formatter.format(price)}$symbol';
       case 'GBP':
         symbol = '£';
-        break;
+        formatter = NumberFormat.currency(
+          locale: 'en_GB',
+          symbol: '',
+          decimalDigits: 2,
+        );
+        return '$symbol${formatter.format(price)}';
       case 'TRY':
       default:
         symbol = '₺';
-        break;
+        formatter = NumberFormat.currency(
+          locale: 'tr_TR',
+          symbol: '',
+          decimalDigits: 2,
+        );
+        return '${formatter.format(price)} $symbol';
     }
-
-    return '${formatter.format(price)} $symbol';
   }
 
   String get formattedPrice {

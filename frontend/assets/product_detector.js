@@ -2493,10 +2493,10 @@ const ZaraExtractor = {
 
         for (const sizeItem of sizeItems) {
           // Check if this size is enabled (in stock)
-          const isEnabled = !sizeItem.classList.contains(
-            "size-selector-sizes-size--disabled"
-          );
-
+          // Updated to check for the unavailable and disabled classes
+          const isUnavailable = sizeItem.classList.contains("size-selector-sizes-size--unavailable") || 
+                               sizeItem.classList.contains("size-selector-sizes__size--disabled");
+          
           // Get size label
           const sizeLabel = sizeItem.querySelector(
             ".size-selector-sizes-size__label"
@@ -2516,11 +2516,11 @@ const ZaraExtractor = {
           // This is the key change - we're formatting the value as a JSON string that can be parsed by Dart
           const valueObj = {
             size: sizeText,
-            inStock: isEnabled,
+            inStock: !isUnavailable,
           };
           const valueJson = JSON.stringify(valueObj);
 
-          // Add to size variants
+          // Only add sizes that are in stock, or add all and let the Flutter code handle it
           sizeResults.push({
             text: sizeText,
             selected: isSelected,
@@ -2528,7 +2528,71 @@ const ZaraExtractor = {
           });
 
           Logger.debug(
-            `Added Zara size: ${sizeText}, in stock: ${isEnabled}, selected: ${isSelected}`
+            `Added Zara size: ${sizeText}, in stock: ${!isUnavailable}, selected: ${isSelected}`
+          );
+        }
+
+        // Successfully extracted sizes
+        if (sizeResults.length > 0) {
+          return sizeResults;
+        }
+      }
+
+      // Try the new size selector structure - specific for the HTML provided
+      const newSizeSelector = ".new-size-selector";
+      const newSizeContainer = document.querySelector(newSizeSelector);
+      
+      if (newSizeContainer) {
+        // Get all size elements
+        const sizeItems = newSizeContainer.querySelectorAll(
+          ".size-selector-sizes__size"
+        );
+        Logger.debug(`Found ${sizeItems.length} Zara sizes in new selector`);
+
+        for (const sizeItem of sizeItems) {
+          // Check if this size is available (not disabled or unavailable)
+          const isUnavailable = sizeItem.classList.contains("size-selector-sizes__size--disabled") || 
+                               sizeItem.classList.contains("size-selector-sizes-size--unavailable");
+          
+          // Also check the data-qa-action attribute on the button
+          const sizeButton = sizeItem.querySelector("button.size-selector-sizes-size__button");
+          const dataQaAction = sizeButton ? sizeButton.getAttribute("data-qa-action") : null;
+          const isOutOfStock = dataQaAction === "size-out-of-stock";
+          
+          // Get size label
+          const sizeLabel = sizeItem.querySelector(
+            ".size-selector-sizes-size__label"
+          );
+          if (!sizeLabel) continue;
+
+          const sizeText = DOMUtils.getTextContent(sizeLabel);
+          if (!sizeText) continue;
+
+          // Check if this size is selected
+          const isSelected =
+            sizeItem.classList.contains("selected") ||
+            sizeItem.classList.contains("size-selector-sizes-size--selected") ||
+            !!sizeItem.querySelector('[aria-selected="true"]');
+
+          // Get availability status based on multiple checks
+          const isInStock = !isUnavailable && !isOutOfStock;
+
+          // Create a value object with size and stock information
+          const valueObj = {
+            size: sizeText,
+            inStock: isInStock,
+          };
+          const valueJson = JSON.stringify(valueObj);
+
+          // Add to size variants
+          sizeResults.push({
+            text: sizeText,
+            selected: isSelected,
+            value: valueJson,
+          });
+
+          Logger.debug(
+            `Added Zara size (new selector): ${sizeText}, in stock: ${isInStock}, selected: ${isSelected}`
           );
         }
 
@@ -2639,13 +2703,19 @@ const ZaraExtractor = {
               );
               const isEnabled = sizeContainer
                 ? !sizeContainer.classList.contains("disabled") &&
-                  !sizeContainer.classList.contains("out-of-stock")
+                  !sizeContainer.classList.contains("out-of-stock") &&
+                  !sizeContainer.classList.contains("size-selector-sizes__size--disabled") &&
+                  !sizeContainer.classList.contains("size-selector-sizes-size--unavailable")
                 : true;
+
+              // Check if there's a data-qa-action attribute on a parent button
+              const parentButton = sizeElem.closest("button[data-qa-action]");
+              const isOutOfStock = parentButton && parentButton.getAttribute("data-qa-action") === "size-out-of-stock";
 
               // Create a JSON string value that includes the inStock information
               const valueObj = {
                 size: sizeText,
-                inStock: isEnabled,
+                inStock: isEnabled && !isOutOfStock,
               };
               const valueJson = JSON.stringify(valueObj);
 
@@ -2655,7 +2725,7 @@ const ZaraExtractor = {
                 value: valueJson,
               });
 
-              Logger.debug(`Added Zara hidden size: ${sizeText}`);
+              Logger.debug(`Added Zara hidden size: ${sizeText}, in stock: ${isEnabled && !isOutOfStock}`);
             }
           }
         }

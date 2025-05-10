@@ -1,6 +1,7 @@
 // lib/models/variant_option.dart - Enhanced to handle richer data
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 class VariantOption {
   final String text;
@@ -54,34 +55,57 @@ class VariantOption {
   }
   // Is this size/color in stock?
   bool get isInStock {
+    // For debugging
+    final currentValue = value;
+    final sizeText = text;
+    
     // Check additionalData first
     if (additionalData != null && additionalData!.containsKey('inStock')) {
-      return additionalData!['inStock'] == true;
+      final inStockValue = additionalData!['inStock'];
+      debugPrint('[VO] Size $sizeText: additionalData inStock=$inStockValue');
+      return inStockValue == true;
     }
 
     // Try to parse from value if it contains inStock information
-    if (value != null && value!.contains('inStock')) {
+    if (currentValue != null) {
       try {
-        // Value might be a JSON string
-        final Map<String, dynamic> data = jsonDecode(value!);
-        if (data.containsKey('inStock')) {
-          return data['inStock'] == true;
+        // Value might be a JSON string with inStock information
+        if (currentValue.contains('inStock')) {
+          final Map<String, dynamic> data = jsonDecode(currentValue);
+          final inStock = data['inStock'];
+          debugPrint('[VO] Size $sizeText: parsed from JSON inStock=$inStock');
+          return inStock == true; // Explicitly compare to true for safety
         }
       } catch (e) {
-        // Parsing failed, check for text indicators
+        debugPrint('[VO] Size $sizeText: error parsing JSON: $e');
+        // Parsing failed, continue to other checks
+      }
+    }
+
+    // For Zara specific cases - check for size-specific indicators in the value
+    if (currentValue != null) {
+      // Check for out-of-stock indicators specific to Zara
+      if (currentValue.toLowerCase().contains('unavailable') ||
+          currentValue.toLowerCase().contains('out of stock') ||
+          currentValue.toLowerCase().contains('out-of-stock') ||
+          currentValue.toLowerCase().contains('disabled')) {
+        debugPrint('[VO] Size $sizeText: detected out-of-stock keyword in value');
+        return false;
       }
     }
 
     // Check if value contains text indicators of stock status
-    if (value != null) {
-      if (value!.toLowerCase().contains('out of stock') ||
-          value!.toLowerCase().contains('unavailable') ||
-          value!.toLowerCase().contains('sold out')) {
+    if (currentValue != null) {
+      if (currentValue.toLowerCase().contains('out of stock') ||
+          currentValue.toLowerCase().contains('unavailable') ||
+          currentValue.toLowerCase().contains('sold out')) {
+        debugPrint('[VO] Size $sizeText: detected general out-of-stock keyword');
         return false;
       }
     }
 
     // Default to true if we can't determine
+    debugPrint('[VO] Size $sizeText: no stock info found, defaulting to inStock=true');
     return true;
   }
 
